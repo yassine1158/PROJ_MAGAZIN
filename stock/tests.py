@@ -1,3 +1,4 @@
+import io
 from decimal import Decimal
 from unittest import mock
 
@@ -189,7 +190,7 @@ class PagesTests(Base):
         Article.objects.all().delete()
         Etagere.objects.all().delete()
         Bloc.objects.all().delete()
-        call_command('demo', stdout=open('/dev/null', 'w'))
+        call_command('demo', stdout=io.StringIO())
         self.assertGreater(Article.objects.count(), 10)
         self.assertTrue(BonSortie.objects.filter(statut='VALIDE').exists())
 
