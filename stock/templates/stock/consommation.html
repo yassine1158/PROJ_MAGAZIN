@@ -1,17 +1,17 @@
 {% extends 'stock/base.html' %}
+{% load magasin %}
 {% block titre %}Consommation par chantier{% endblock %}
 {% block contenu %}
 <main class="page">
-  <h1>Consommation par chantier</h1>
-  <p class="sous-titre">Sorties validées (moins les annulations), valorisées au prix moyen.</p>
-  <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
-    Du <input type="date" name="du" value="{{ du|date:'Y-m-d' }}">
-    au <input type="date" name="au" value="{{ au|date:'Y-m-d' }}">
-    <button class="btn btn-primary">Afficher</button>
-    <button class="btn" name="format" value="excel">📊 Excel (détail)</button>
+  <div class="entete"><div><h1>Consommation par chantier</h1><p>Sorties validées (moins les annulations), valorisées au prix moyen.</p></div></div>
+  <form method="get" class="carte carte-pad" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;padding:14px">
+    <label style="margin:0">Du</label> <input type="date" name="du" value="{{ du|date:'Y-m-d' }}" style="width:auto">
+    <label style="margin:0">au</label> <input type="date" name="au" value="{{ au|date:'Y-m-d' }}" style="width:auto">
+    <button class="btn btn-vert">Afficher</button>
+    <button class="btn" name="format" value="excel">{% icone 'excel' %} Excel (détail)</button>
   </form>
   {% for nom, c in chantiers.items %}
-  <section class="card card-pad" style="margin-bottom:16px">
+  <section class="carte carte-pad" style="margin-bottom:16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline">
       <h2 style="margin:0 0 10px;font-size:17px">{{ nom }}</h2>
       <b>{{ c.total }} {{ DEVISE }}</b>
@@ -24,7 +24,7 @@
     </table></div>
   </section>
   {% empty %}
-  <div class="card card-pad sous-titre">Aucune sortie sur cette période.</div>
+  <div class="carte carte-pad muted">Aucune sortie sur cette période.</div>
   {% endfor %}
 </main>
 {% endblock %}

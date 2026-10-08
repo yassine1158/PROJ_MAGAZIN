@@ -1,0 +1,70 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}{{ bon.numero }}{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <h1>{% if type == 'entree' %}Bon d'entrée{% elif type == 'sortie' %}Bon de sortie{% else %}Inventaire{% endif %} {{ bon.numero }}</h1>
+      <p>
+        {% if bon.statut == 'VALIDE' %}<span class="badge badge-ok">Enregistré</span>{% elif bon.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% else %}<span class="badge badge-warn">Brouillon</span>{% endif %}
+        · {{ bon.date|date:"d/m/Y à H:i" }}{% if bon.cree_par %} · par {{ bon.cree_par.get_full_name|default:bon.cree_par.get_username }}{% endif %}
+      </p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn" href="{% url 'stock:bon_pdf' modele bon.pk %}" target="_blank">{% icone 'imprimer' %} Imprimer</a>
+      {% if type == 'entree' %}<a class="btn btn-vert" href="{% url 'stock:entree' %}">{% icone 'plus' %} Nouvelle entrée</a>{% endif %}
+      {% if type == 'sortie' %}<a class="btn btn-orange" href="{% url 'stock:sortie' %}">{% icone 'plus' %} Nouvelle sortie</a>{% endif %}
+    </div>
+  </div>
+
+  <section class="carte carte-pad" style="margin-bottom:20px">
+    <div class="grille-champs">
+      {% if type == 'entree' %}
+        <div class="champ"><label>Fournisseur</label>{{ bon.fournisseur|default:"—" }}</div>
+        <div class="champ"><label>N° BL / facture</label>{{ bon.reference|default:"—" }}</div>
+      {% elif type == 'sortie' %}
+        <div class="champ"><label>Chantier</label>{{ bon.chantier }}</div>
+        <div class="champ"><label>Engin</label>{{ bon.engin|default:"—" }}</div>
+        <div class="champ"><label>Reçu par</label>{{ bon.demandeur }}</div>
+      {% endif %}
+      <div class="champ"><label>Remarque</label>{{ bon.observation|default:"—" }}</div>
+    </div>
+  </section>
+
+  <section class="carte table-wrap">
+    <table class="data">
+      <thead><tr>
+        <th>Article</th><th>Emplacement</th>
+        {% if type == 'inventaire' %}<th class="num">Avant</th><th class="num">Compté</th><th class="num">Écart</th>
+        {% else %}<th class="num">Quantité</th><th class="num">Prix unit.</th><th class="num">Montant</th>{% endif %}
+      </tr></thead>
+      <tbody>
+      {% for l in lignes %}
+        <tr>
+          <td><a href="{% url 'stock:article_modifier' l.article.pk %}"><b>{{ l.article.designation }}</b></a><div class="muted petit">{{ l.article.code }}</div></td>
+          <td>{% if l.article.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ l.article.pk }}">{{ l.article.emplacement }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+          {% if type == 'inventaire' %}
+            <td class="num">{{ l.stock_theorique|qte }}</td><td class="num">{{ l.stock_compte|qte }}</td><td class="num"><b>{{ l.ecart|qte }}</b></td>
+          {% else %}
+            <td class="num">{{ l.quantite|qte }} {{ l.article.unite }}</td><td class="num">{{ l.prix_unitaire|montant }}</td><td class="num">{{ l.montant|montant }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+      {% if type != 'inventaire' %}
+      <tfoot><tr><td colspan="4" class="num"><b>Total</b></td><td class="num"><b>{{ bon.total|montant }} {{ DEVISE }}</b></td></tr></tfoot>
+      {% endif %}
+    </table>
+  </section>
+
+  {% if bon.statut == 'VALIDE' and type != 'inventaire' %}
+  <form method="post" action="{% url 'stock:bon_annuler' type bon.pk %}" style="margin-top:22px;text-align:right"
+        onsubmit="return confirm('Annuler ce bon ? Le stock sera remis comme avant.')">
+    {% csrf_token %}
+    <button class="btn btn-rouge">{% icone 'annuler' %} Annuler ce bon (erreur de saisie)</button>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

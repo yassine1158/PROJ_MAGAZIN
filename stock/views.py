@@ -138,22 +138,6 @@ def dashboard(request):
     return render(request, 'stock/dashboard.html', contexte)
 
 
-@login_required
-def etat_stock(request):
-    q = request.GET.get('q', '').strip()
-    articles = Article.objects.filter(actif=True).select_related('categorie', 'etagere__bloc')
-    if q:
-        articles = articles.filter(Q(code__icontains=q) | Q(designation__icontains=q)
-                                   | Q(categorie__nom__icontains=q) | Q(mots_cles__icontains=q))
-    if request.GET.get('alerte'):
-        articles = articles.filter(stock__lte=F('stock_min'))
-    if request.GET.get('format') == 'excel':
-        return exports.etat_stock(articles)
-    total = sum((a.valeur_stock for a in articles), Decimal('0'))
-    return render(request, 'stock/etat_stock.html', {'articles': articles, 'q': q, 'total': nombre(total),
-                                                      'alerte': request.GET.get('alerte')})
-
-
 def _date(texte, defaut):
     try:
         return date.fromisoformat(texte)

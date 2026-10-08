@@ -39,7 +39,7 @@ function badgeStock(a) {
 
 function chipsLieu(a) {
   if (!a.etagere_id) return '<span class="chip">Emplacement non renseigné</span>';
-  let html = `<span class="chip bloc" style="background:var(--accent)">Bloc ${texte(a.bloc)}</span>`;
+  let html = `<span class="chip bloc" style="background:var(--vert)">Bloc ${texte(a.bloc)}</span>`;
   html += `<span class="chip">Étagère ${texte(a.etagere)}</span>`;
   if (a.niveau) html += `<span class="chip">Niveau ${texte(a.niveau)}</span>`;
   if (a.case) html += `<span class="chip">${texte(a.case)}</span>`;
@@ -129,7 +129,10 @@ $('photo-retirer').onclick = () => {
 
 // Lien direct depuis l'administration : /?article=12
 const params = new URLSearchParams(location.search);
-if (params.get('article')) {
+if (params.get('q')) {
+  champ.value = params.get('q');
+  chercher();
+} else if (params.get('article')) {
   const rep = await fetch(cfg.apiArticle + params.get('article') + '/');
   if (rep.ok) afficherResultats([await rep.json()]);
 }

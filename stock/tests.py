@@ -174,7 +174,7 @@ class PagesTests(Base):
         self.client.force_login(self.user)
         self.entree(self.filtre, 5, 1000)
         bon = services.valider(self.sortie(self.filtre, 1), self.user)
-        for url in [reverse('stock:recherche'), reverse('stock:dashboard'), reverse('stock:etat_stock'),
+        for url in [reverse('stock:recherche'), reverse('stock:dashboard'), reverse('stock:articles'),
                     reverse('stock:consommation'), reverse('stock:api_plan'),
                     reverse('stock:api_article', args=[self.filtre.pk]),
                     reverse('admin:stock_article_changelist'), reverse('admin:stock_article_change', args=[self.filtre.pk]),
@@ -182,7 +182,7 @@ class PagesTests(Base):
             self.assertEqual(self.client.get(url).status_code, 200, url)
         pdf = self.client.get(reverse('stock:bon_pdf', args=['bonsortie', bon.pk]))
         self.assertEqual(pdf['Content-Type'], 'application/pdf')
-        xlsx = self.client.get(reverse('stock:etat_stock') + '?format=excel')
+        xlsx = self.client.get(reverse('stock:articles') + '?format=excel')
         self.assertIn('spreadsheetml', xlsx['Content-Type'])
 
     def test_demo(self):
@@ -192,3 +192,91 @@ class PagesTests(Base):
         call_command('demo', stdout=open('/dev/null', 'w'))
         self.assertGreater(Article.objects.count(), 10)
         self.assertTrue(BonSortie.objects.filter(statut='VALIDE').exists())
+
+
+class EcransTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_connexion(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('stock:connexion')).status_code, 200)
+        self.assertEqual(self.client.get('/admin/login/').status_code, 200)
+        rep = self.client.post(reverse('stock:connexion'), {'username': 'admin', 'password': 'motdepasse-solide'})
+        self.assertRedirects(rep, reverse('stock:accueil'))
+
+    def test_pages_principales(self):
+        for nom in ['accueil', 'entree', 'sortie', 'bons', 'articles', 'article_nouveau', 'recherche',
+                    'dashboard', 'consommation']:
+            self.assertEqual(self.client.get(reverse(f'stock:{nom}')).status_code, 200, nom)
+        self.assertEqual(self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk])).status_code, 200)
+
+    def test_entree_simple(self):
+        rep = self.client.post(reverse('stock:entree'), {
+            'fournisseur': 'Nouveau fournisseur', 'reference': 'BL-1',
+            'article': [self.filtre.pk, ''], 'quantite': ['10', ''], 'prix': ['1 500,50', ''],
+        })
+        bon = BonEntree.objects.get()
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['entree', bon.pk]))
+        self.assertEqual(bon.statut, 'VALIDE')
+        self.assertEqual(bon.fournisseur.nom, 'Nouveau fournisseur')
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 10)
+        self.assertEqual(self.filtre.prix_moyen, Decimal('1500.50'))
+        self.assertEqual(self.client.get(rep.url).status_code, 200)
+
+    def test_sortie_cree_le_chantier_et_refuse_le_stock_insuffisant(self):
+        self.entree(self.filtre, 3, 100)
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Nouveau chantier', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['5'],
+        })
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, 'stock insuffisant')
+        self.assertFalse(BonSortie.objects.exists())  # rien n'est gardé
+        self.assertFalse(Chantier.objects.filter(nom='Nouveau chantier').exists())
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'nouveau CHANTIER', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2'],
+        })
+        bon = BonSortie.objects.get()
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 1)
+        # Annulation depuis l'écran du bon
+        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]))
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 3)
+
+    def test_sortie_incomplete(self):
+        rep = self.client.post(reverse('stock:sortie'), {'chantier': '', 'demandeur': '', 'article': [''], 'quantite': ['']})
+        self.assertContains(rep, 'Indiquez le chantier')
+        self.assertContains(rep, 'Ajoutez au moins un article')
+
+    def test_nouvel_article_avec_stock_de_depart(self):
+        rep = self.client.post(reverse('stock:article_nouveau'), {
+            'code': 'GANT-01', 'designation': 'Gants', 'categorie_nom': 'epi', 'unite': 'U', 'stock_min': '5',
+            'etagere': self.etagere.pk, 'niveau': '3', 'stock_initial': '20', 'prix_initial': '1500', 'actif': 'on',
+        })
+        self.assertRedirects(rep, reverse('stock:articles'))
+        gants = Article.objects.get(code='GANT-01')
+        self.assertEqual(gants.stock, 20)
+        self.assertEqual(gants.categorie.nom, 'epi')
+        self.assertEqual(gants.emplacement, 'Bloc A › Étagère R1 › Niveau 3')
+
+    def test_niveau_trop_haut(self):
+        rep = self.client.post(reverse('stock:article_nouveau'), {
+            'code': 'X', 'designation': 'X', 'categorie_nom': 'Filtres', 'unite': 'U', 'stock_min': '0',
+            'etagere': self.etagere.pk, 'niveau': '9',
+        })
+        self.assertContains(rep, 'que 4 niveaux')
+
+    def test_corriger_le_stock(self):
+        self.entree(self.filtre, 10, 100)
+        self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': '8'})
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 8)
+        self.assertEqual(Inventaire.objects.get().lignes.get().ecart, -2)
+
+    def test_api_articles(self):
+        data = self.client.get(reverse('stock:api_articles'), {'q': 'huile'}).json()
+        self.assertEqual(data['articles'][0]['code'], 'FH-01')

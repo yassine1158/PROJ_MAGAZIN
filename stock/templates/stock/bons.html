@@ -1,0 +1,41 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Historique des bons{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div><h1>Historique des bons</h1><p>Toutes les entrées, sorties et corrections de stock.</p></div>
+    <form method="get" style="display:flex;gap:8px">
+      {% if type %}<input type="hidden" name="type" value="{{ type }}">{% endif %}
+      <input type="search" name="q" value="{{ q }}" placeholder="N° de bon, chantier, fournisseur…" style="min-width:280px">
+      <button class="btn">{% icone 'recherche' %}</button>
+    </form>
+  </div>
+  <nav class="onglets">
+    <a href="?{% if q %}q={{ q|urlencode }}{% endif %}" class="{% if not type %}actif{% endif %}">Tous</a>
+    <a href="?type=entree{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'entree' %}actif{% endif %}">Entrées</a>
+    <a href="?type=sortie{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'sortie' %}actif{% endif %}">Sorties</a>
+    <a href="?type=inventaire{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'inventaire' %}actif{% endif %}">Corrections</a>
+  </nav>
+  <section class="carte table-wrap">
+    <table class="data">
+      <thead><tr><th>N°</th><th>Date</th><th>Type</th><th>Pour / de</th><th class="num">Articles</th><th class="num">Montant</th><th></th></tr></thead>
+      <tbody>
+      {% for b, t in bons %}
+        <tr>
+          <td><a href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a></td>
+          <td>{{ b.date|date:"d/m/Y H:i" }}</td>
+          <td>{% if b.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% elif t == 'entree' %}<span class="badge badge-ok">Entrée</span>{% elif t == 'sortie' %}<span class="badge badge-warn">Sortie</span>{% else %}<span class="badge badge-gris">Correction</span>{% endif %}</td>
+          <td>{% if t == 'entree' %}{{ b.fournisseur|default:"—" }}{% elif t == 'sortie' %}{{ b.chantier }}{% if b.engin %} · {{ b.engin.code }}{% endif %}{% else %}{{ b.observation|default:"Inventaire" }}{% endif %}</td>
+          <td class="num">{{ b.lignes.all|length }}</td>
+          <td class="num">{% if t != 'inventaire' %}{{ b.total|montant }}{% endif %}</td>
+          <td class="num"><a href="{% url 'stock:bon_detail' t b.pk %}">Voir</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="vide">Aucun bon.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+{% endblock %}

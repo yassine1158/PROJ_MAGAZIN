@@ -1,0 +1,126 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}{% if article %}{{ article.code }}{% else %}Nouvel article{% endif %}{% endblock %}
+
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      {% if article %}
+        <h1>{{ article.designation }}</h1>
+        <p>{{ article.code }} · stock actuel
+          <span class="badge {% if article.stock <= 0 %}badge-danger{% elif article.en_alerte %}badge-warn{% else %}badge-ok{% endif %}">{{ article.stock|qte }} {{ article.unite }}</span>
+          · prix moyen {{ article.prix_moyen|montant }} {{ DEVISE }}</p>
+      {% else %}
+        <h1>Nouvel article</h1><p>Les champs marqués * sont obligatoires.</p>
+      {% endif %}
+    </div>
+    {% if article and article.etagere_id %}
+      <a class="btn" href="{% url 'stock:recherche' %}?article={{ article.pk }}">{% icone 'cube' %} Voir en 3D</a>
+    {% endif %}
+  </div>
+
+  {% if form.non_field_errors %}<div class="message message-error">{% icone 'alerte' %}<div>{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
+
+  <form method="post" enctype="multipart/form-data" autocomplete="off">
+    {% csrf_token %}
+    <div class="grid-2">
+      <section class="carte carte-pad">
+        <h2>Identification</h2>
+        {% include 'stock/_champ.html' with champ=form.designation obligatoire=1 %}
+        <div class="grille-champs">
+          {% include 'stock/_champ.html' with champ=form.code obligatoire=1 %}
+          {% include 'stock/_champ.html' with champ=form.categorie_nom obligatoire=1 %}
+          {% include 'stock/_champ.html' with champ=form.unite %}
+          {% include 'stock/_champ.html' with champ=form.reference_fabricant %}
+        </div>
+        <datalist id="liste-categories">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+        {% include 'stock/_champ.html' with champ=form.mots_cles %}
+        {% include 'stock/_champ.html' with champ=form.photo %}
+        {% if article.photo %}<img src="{{ article.photo.url }}" alt="" style="max-width:220px;border-radius:10px">{% endif %}
+      </section>
+
+      <div>
+        <section class="carte carte-pad" style="margin-bottom:20px">
+          <h2>Où est-il rangé ?</h2>
+          {% if plan_vide %}
+            <p class="muted petit">Le plan du magasin n'est pas encore créé.
+              {% if request.user.is_staff %}<a href="{% url 'admin:stock_bloc_add' %}">Créer les blocs et étagères</a>{% endif %}</p>
+          {% endif %}
+          {% include 'stock/_champ.html' with champ=form.etagere %}
+          <div class="grille-champs">
+            {% include 'stock/_champ.html' with champ=form.niveau %}
+            {% include 'stock/_champ.html' with champ=form.case %}
+          </div>
+        </section>
+
+        <section class="carte carte-pad">
+          <h2>Stock</h2>
+          {% include 'stock/_champ.html' with champ=form.stock_min %}
+          {% if not article %}
+            <div class="grille-champs">
+              {% include 'stock/_champ.html' with champ=form.stock_initial %}
+              {% include 'stock/_champ.html' with champ=form.prix_initial %}
+            </div>
+          {% endif %}
+          <label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.actif }} Article actif (décocher pour le masquer)</label>
+        </section>
+      </div>
+    </div>
+
+    <div class="boutons-bas">
+      <a class="btn" href="{% url 'stock:articles' %}">Retour</a>
+      {% if not article %}<button type="submit" name="encore" value="1" class="btn">Enregistrer et en ajouter un autre</button>{% endif %}
+      <button type="submit" class="btn btn-vert btn-grand">{% icone 'valider' %} Enregistrer</button>
+    </div>
+  </form>
+
+  {% if article %}
+  <div class="grid-2" style="margin-top:28px">
+    <section class="carte carte-pad">
+      <h2>Corriger le stock</h2>
+      <p class="muted petit">Après un comptage, indiquez la quantité réellement présente. La correction est gardée dans l'historique.</p>
+      <form method="post" action="{% url 'stock:article_corriger' article.pk %}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        {% csrf_token %}
+        <div style="flex:1;min-width:140px"><label for="stock_compte">Quantité comptée</label><input id="stock_compte" name="stock_compte" inputmode="decimal" required></div>
+        <div style="flex:2;min-width:180px"><label for="motif">Motif</label><input id="motif" name="motif" placeholder="Ex. : inventaire de fin de mois"></div>
+        <button class="btn btn-orange">Corriger</button>
+      </form>
+    </section>
+    <section class="carte carte-pad">
+      <h2>Derniers mouvements</h2>
+      {% if mouvements %}
+      <table class="data">
+        {% for m in mouvements %}
+        <tr>
+          <td class="petit">{{ m.date|date:"d/m/Y" }}</td>
+          <td class="petit">{{ m.get_type_display }}{% if m.chantier %} · {{ m.chantier }}{% endif %}</td>
+          <td class="num" style="color:{% if m.quantite > 0 %}var(--vert){% else %}var(--rouge){% endif %};font-weight:600">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|qte }}</td>
+          <td class="num muted petit">→ {{ m.stock_apres|qte }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="vide">Aucun mouvement.</p>{% endif %}
+    </section>
+  </div>
+  {% endif %}
+</main>
+{{ niveaux|json_script:"niveaux-etageres" }}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // Le champ « niveau » s'adapte au nombre de niveaux de l'étagère choisie.
+  const niveaux = JSON.parse(document.getElementById('niveaux-etageres').textContent);
+  const etagere = document.getElementById('id_etagere');
+  const niveau = document.getElementById('id_niveau');
+  function majNiveau() {
+    const max = niveaux[etagere.value];
+    niveau.disabled = !max;
+    if (max) niveau.max = max; else niveau.value = '';
+  }
+  etagere.addEventListener('change', majNiveau);
+  majNiveau();
+</script>
+{% endblock %}

@@ -1,0 +1,79 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Accueil{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <h1>Bonjour {{ request.user.first_name|default:request.user.get_username }} 👋</h1>
+      <p>Que voulez-vous faire ?</p>
+    </div>
+  </div>
+
+  <form class="accueil-recherche" action="{% url 'stock:recherche' %}" method="get">
+    <input type="search" name="q" placeholder="Où est… ? Tapez un article (ex. : filtre à huile, ciment, gants)" autofocus>
+    <button class="btn btn-vert btn-grand" type="submit">{% icone 'recherche' %} Trouver</button>
+  </form>
+
+  <div class="actions">
+    <a class="carte action" href="{% url 'stock:entree' %}">
+      <div class="rond rond-vert">{% icone 'entree' %}</div>
+      <b>Entrée de stock</b><span>Réception d'un fournisseur</span>
+    </a>
+    <a class="carte action" href="{% url 'stock:sortie' %}">
+      <div class="rond rond-orange">{% icone 'sortie' %}</div>
+      <b>Sortie de stock</b><span>Pour un chantier ou un engin</span>
+    </a>
+    <a class="carte action" href="{% url 'stock:recherche' %}">
+      <div class="rond rond-bleu">{% icone 'cube' %}</div>
+      <b>Trouver en 3D</b><span>Bloc, étagère et niveau</span>
+    </a>
+    <a class="carte action" href="{% url 'stock:article_nouveau' %}">
+      <div class="rond rond-gris">{% icone 'plus' %}</div>
+      <b>Nouvel article</b><span>Ajouter au catalogue</span>
+    </a>
+  </div>
+
+  <div class="kpis">
+    <a class="carte kpi" href="{% url 'stock:articles' %}" style="color:inherit;text-decoration:none"><div class="label">Articles</div><div class="valeur">{{ nb_articles }}</div></a>
+    <a class="carte kpi" href="{% url 'stock:articles' %}?filtre=alerte" style="color:inherit;text-decoration:none"><div class="label">À commander</div><div class="valeur" style="color:{% if NB_ALERTES %}var(--orange){% else %}var(--vert){% endif %}">{{ NB_ALERTES }}</div></a>
+    <div class="carte kpi"><div class="label">Valeur du stock</div><div class="valeur">{{ valeur_stock }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
+    <div class="carte kpi"><div class="label">Sorties ce mois</div><div class="valeur">{{ sorties_mois }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
+  </div>
+
+  <div class="grid-2">
+    <section class="carte carte-pad">
+      <div class="entete" style="margin-bottom:8px"><h2 style="margin:0">À commander</h2><a href="{% url 'stock:articles' %}?filtre=alerte">Tout voir</a></div>
+      {% if alertes %}
+      <table class="data">
+        {% for a in alertes %}
+        <tr>
+          <td><a href="{% url 'stock:article_modifier' a.pk %}"><b>{{ a.designation }}</b></a><div class="muted petit">{{ a.code }}{% if a.emplacement %} · {{ a.emplacement }}{% endif %}</div></td>
+          <td class="num"><span class="badge {% if a.stock <= 0 %}badge-danger{% else %}badge-warn{% endif %}">{{ a.stock|qte }} {{ a.unite }}</span><div class="muted petit">min {{ a.stock_min|qte }}</div></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="vide">Rien à commander. 👍</p>{% endif %}
+    </section>
+
+    <section class="carte carte-pad">
+      <div class="entete" style="margin-bottom:8px"><h2 style="margin:0">Derniers bons</h2><a href="{% url 'stock:bons' %}">Tout voir</a></div>
+      {% if derniers %}
+      <table class="data">
+        {% for b, t in derniers %}
+        <tr>
+          <td>
+            <a href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a>
+            <div class="muted petit">{% if t == 'entree' %}Entrée · {{ b.fournisseur|default:"sans fournisseur" }}{% else %}Sortie · {{ b.chantier }}{% endif %}</div>
+          </td>
+          <td class="muted petit">{{ b.date|date:"d/m H:i" }}</td>
+          <td class="num">{% if b.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% elif t == 'entree' %}<span class="badge badge-ok">Entrée</span>{% else %}<span class="badge badge-warn">Sortie</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}<p class="vide">Aucun bon pour l'instant.</p>{% endif %}
+    </section>
+  </div>
+</main>
+{% endblock %}

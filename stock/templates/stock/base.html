@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static magasin %}<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
@@ -11,25 +11,59 @@
   {% block head %}{% endblock %}
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{% url 'stock:recherche' %}">
-      <img src="{% static 'stock/logo.png' %}" alt="">
-      <span>Magasin</span>
-    </a>
-    {% with nom=request.resolver_match.url_name %}
-    <nav class="nav">
-      <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">Recherche IA</a>
-      <a href="{% url 'stock:dashboard' %}" class="{% if nom == 'dashboard' %}actif{% endif %}">Tableau de bord</a>
-      <a href="{% url 'stock:etat_stock' %}" class="{% if nom == 'etat_stock' %}actif{% endif %}">État du stock</a>
-      <a href="{% url 'stock:consommation' %}" class="{% if nom == 'consommation' %}actif{% endif %}">Consommation</a>
-      <a href="{% url 'admin:stock_bonentree_add' %}">+ Entrée</a>
-      <a href="{% url 'admin:stock_bonsortie_add' %}">+ Sortie</a>
-      <a href="{% url 'admin:index' %}">Administration</a>
+{% with nom=request.resolver_match.url_name %}
+<div class="app">
+  <aside class="sidebar">
+    <a class="logo" href="{% url 'stock:accueil' %}"><img src="{% static 'stock/logo.png' %}" alt="{{ SOCIETE }}"></a>
+    <nav class="menu">
+      <a href="{% url 'stock:accueil' %}" class="{% if nom == 'accueil' %}actif{% endif %}">{% icone 'accueil' %} Accueil</a>
+      <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">{% icone 'recherche' %} Trouver un article</a>
+
+      <div class="titre-groupe">Mouvements</div>
+      <a href="{% url 'stock:entree' %}" class="{% if nom == 'entree' %}actif{% endif %}">{% icone 'entree' %} Entrée de stock</a>
+      <a href="{% url 'stock:sortie' %}" class="{% if nom == 'sortie' %}actif{% endif %}">{% icone 'sortie' %} Sortie de stock</a>
+      <a href="{% url 'stock:bons' %}" class="{% if nom == 'bons' or nom == 'bon_detail' %}actif{% endif %}">{% icone 'historique' %} Historique des bons</a>
+
+      <div class="titre-groupe">Stock</div>
+      <a href="{% url 'stock:articles' %}" class="{% if nom == 'articles' or nom == 'article_nouveau' or nom == 'article_modifier' %}actif{% endif %}">{% icone 'articles' %} Articles</a>
+      <a href="{% url 'stock:articles' %}?filtre=alerte" class="{% if nom == 'articles' and request.GET.filtre == 'alerte' %}actif{% endif %}">{% icone 'alerte' %} À commander{% if NB_ALERTES %}<span class="compteur">{{ NB_ALERTES }}</span>{% endif %}</a>
+
+      <div class="titre-groupe">Rapports</div>
+      <a href="{% url 'stock:dashboard' %}" class="{% if nom == 'dashboard' %}actif{% endif %}">{% icone 'rapport' %} Tableau de bord</a>
+      <a href="{% url 'stock:consommation' %}" class="{% if nom == 'consommation' %}actif{% endif %}">{% icone 'chantier' %} Consommation chantiers</a>
+
+      {% if request.user.is_staff %}
+      <div class="titre-groupe">Réglages</div>
+      <a href="{% url 'admin:stock_bloc_changelist' %}">{% icone 'plan' %} Plan du magasin</a>
+      <a href="{% url 'admin:index' %}">{% icone 'parametres' %} Administration</a>
+      {% endif %}
     </nav>
-    {% endwith %}
-    <span class="user">{{ request.user.get_full_name|default:request.user.username }}</span>
-  </header>
-  {% block contenu %}{% endblock %}
-  {% block scripts %}{% endblock %}
+    <div class="pied">
+      <div class="avatar">{{ request.user.get_username|first|upper }}</div>
+      <div class="nom">{{ request.user.get_full_name|default:request.user.get_username }}</div>
+      <form method="post" action="{% url 'stock:deconnexion' %}">{% csrf_token %}
+        <button type="submit" title="Se déconnecter">{% icone 'deconnexion' %}</button>
+      </form>
+    </div>
+  </aside>
+
+  <div class="contenu">
+    <header class="barre-mobile">
+      <button class="btn btn-icone" type="button" onclick="document.body.classList.toggle('menu-ouvert')" aria-label="Menu">{% icone 'menu' %}</button>
+      <img src="{% static 'stock/logo.png' %}" alt="">
+    </header>
+    {% block contenu %}{% endblock %}
+  </div>
+</div>
+{% endwith %}
+<script>
+  // Sur téléphone, un clic en dehors du menu le referme.
+  document.addEventListener('click', (e) => {
+    if (document.body.classList.contains('menu-ouvert') && !e.target.closest('.sidebar, .barre-mobile')) {
+      document.body.classList.remove('menu-ouvert');
+    }
+  });
+</script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

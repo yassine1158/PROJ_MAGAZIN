@@ -1,0 +1,57 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Articles{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <h1>{% if filtre == 'alerte' %}À commander{% else %}Articles{% endif %}</h1>
+      <p>{{ articles|length }} article(s) · valeur {{ total }} {{ DEVISE }}</p>
+    </div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <a class="btn" href="?{{ request.GET.urlencode }}{% if request.GET %}&{% endif %}format=excel">{% icone 'excel' %} Excel</a>
+      <a class="btn btn-vert" href="{% url 'stock:article_nouveau' %}">{% icone 'plus' %} Nouvel article</a>
+    </div>
+  </div>
+
+  <form method="get" class="carte carte-pad" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;padding:14px">
+    <input type="search" name="q" value="{{ q }}" placeholder="Code, nom, autre nom…" style="flex:2;min-width:200px">
+    <select name="categorie" style="flex:1;min-width:160px" onchange="this.form.submit()">
+      <option value="">Toutes les catégories</option>
+      {% for c in categories %}<option value="{{ c.pk }}" {% if categorie == c.pk|stringformat:'s' %}selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+    </select>
+    <select name="filtre" style="flex:1;min-width:160px" onchange="this.form.submit()">
+      <option value="">Tous les articles</option>
+      <option value="alerte" {% if filtre == 'alerte' %}selected{% endif %}>À commander</option>
+      <option value="rupture" {% if filtre == 'rupture' %}selected{% endif %}>En rupture (0)</option>
+      <option value="inactifs" {% if filtre == 'inactifs' %}selected{% endif %}>Désactivés</option>
+    </select>
+    <button class="btn btn-vert">{% icone 'recherche' %} Chercher</button>
+  </form>
+
+  <section class="carte table-wrap">
+    <table class="data">
+      <thead><tr><th></th><th>Article</th><th>Catégorie</th><th>Emplacement</th><th class="num">Stock</th><th class="num">Valeur</th><th></th></tr></thead>
+      <tbody>
+      {% for a in articles %}
+        <tr>
+          <td style="width:56px">{% if a.photo %}<img class="vignette-mini" src="{{ a.photo.url }}" alt="">{% else %}<div class="vignette-mini"></div>{% endif %}</td>
+          <td><a href="{% url 'stock:article_modifier' a.pk %}"><b>{{ a.designation }}</b></a><div class="muted petit">{{ a.code }}</div></td>
+          <td>{{ a.categorie }}</td>
+          <td>{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}" title="Voir en 3D">{% icone 'cube' %} {{ a.emplacement }}</a>{% else %}<span class="muted">Non rangé</span>{% endif %}</td>
+          <td class="num">
+            <span class="badge {% if a.stock <= 0 %}badge-danger{% elif a.en_alerte %}badge-warn{% else %}badge-ok{% endif %}">{{ a.stock|qte }} {{ a.unite }}</span>
+            {% if a.en_alerte %}<div class="muted petit">min {{ a.stock_min|qte }}</div>{% endif %}
+          </td>
+          <td class="num">{{ a.valeur_stock|montant }}</td>
+          <td class="num"><a class="btn btn-icone" href="{% url 'stock:article_modifier' a.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="vide">Aucun article. <a href="{% url 'stock:article_nouveau' %}">Ajouter le premier</a></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+{% endblock %}

@@ -82,7 +82,8 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-LOGIN_URL = 'admin:login'
+LOGIN_URL = 'stock:connexion'
+LOGIN_REDIRECT_URL = 'stock:accueil'
 
 # --- Paramètres du magasin ---
 MAGASIN_SOCIETE = os.environ.get('MAGASIN_SOCIETE', 'SI BÉTON')
@@ -104,10 +105,7 @@ JAZZMIN_SETTINGS = {
     'welcome_sign': 'Gestion du magasin',
     'copyright': 'SI BÉTON',
     'topmenu_links': [
-        {'name': 'Recherche IA', 'url': 'stock:recherche'},
-        {'name': 'Tableau de bord', 'url': 'stock:dashboard'},
-        {'name': 'État du stock', 'url': 'stock:etat_stock'},
-        {'name': 'Consommation chantiers', 'url': 'stock:consommation'},
+        {'name': '← Retour au magasin', 'url': 'stock:accueil'},
     ],
     'order_with_respect_to': [
         'stock', 'stock.article', 'stock.bonentree', 'stock.bonsortie',

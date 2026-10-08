@@ -1,0 +1,86 @@
+{% extends 'stock/base.html' %}
+{% load static magasin %}
+{% block titre %}{% if type == 'entree' %}Entrée de stock{% else %}Sortie de stock{% endif %}{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div>
+      {% if type == 'entree' %}
+        <h1>Entrée de stock</h1><p>Marchandise reçue : le stock augmente dès que vous enregistrez.</p>
+      {% else %}
+        <h1>Sortie de stock</h1><p>Marchandise donnée à un chantier : le stock diminue dès que vous enregistrez.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if erreurs %}
+  <div class="message message-error">{% icone 'alerte' %}<div>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>
+  {% endif %}
+
+  <form method="post" id="form-bon" autocomplete="off">
+    {% csrf_token %}
+    <section class="carte carte-pad" style="margin-bottom:20px">
+      <h2>1. Informations</h2>
+      <div class="grille-champs">
+        {% if type == 'entree' %}
+          <div class="champ">
+            <label for="fournisseur">Fournisseur</label>
+            <input id="fournisseur" name="fournisseur" list="liste-fournisseurs" value="{{ valeurs.fournisseur|default:'' }}" placeholder="Nom du fournisseur">
+            <datalist id="liste-fournisseurs">{% for f in fournisseurs %}<option value="{{ f }}">{% endfor %}</datalist>
+            <div class="aide">Facultatif. Un nouveau nom est ajouté automatiquement.</div>
+          </div>
+          <div class="champ">
+            <label for="reference">N° bon de livraison / facture</label>
+            <input id="reference" name="reference" value="{{ valeurs.reference|default:'' }}" placeholder="Ex. : BL 2026-145">
+          </div>
+        {% else %}
+          <div class="champ">
+            <label for="chantier">Chantier *</label>
+            <input id="chantier" name="chantier" list="liste-chantiers" value="{{ valeurs.chantier|default:'' }}" placeholder="Choisir ou taper un chantier" required>
+            <datalist id="liste-chantiers">{% for c in chantiers %}<option value="{{ c }}">{% endfor %}</datalist>
+          </div>
+          <div class="champ">
+            <label for="engin">Engin / camion</label>
+            <input id="engin" name="engin" list="liste-engins" value="{{ valeurs.engin|default:'' }}" placeholder="Facultatif">
+            <datalist id="liste-engins">{% for e in engins %}<option value="{{ e }}">{% endfor %}</datalist>
+          </div>
+          <div class="champ">
+            <label for="demandeur">Reçu par *</label>
+            <input id="demandeur" name="demandeur" value="{{ valeurs.demandeur|default:'' }}" placeholder="Nom de la personne" required>
+          </div>
+        {% endif %}
+      </div>
+      <div class="champ" style="margin-bottom:0">
+        <label for="observation">Remarque</label>
+        <input id="observation" name="observation" value="{{ valeurs.observation|default:'' }}" placeholder="Facultatif">
+      </div>
+    </section>
+
+    <section class="carte carte-pad">
+      <h2>2. Articles</h2>
+      <table class="lignes">
+        <thead><tr>
+          <th>Article</th><th>Quantité</th>{% if type == 'entree' %}<th>Prix unitaire ({{ DEVISE }})</th>{% endif %}<th></th>
+        </tr></thead>
+        <tbody id="lignes"></tbody>
+      </table>
+      <button type="button" class="btn" id="ajouter-ligne" style="margin-top:10px">{% icone 'plus' %} Ajouter un article</button>
+      {% if type == 'entree' %}<div class="total-bon"><span class="muted">Total</span><b id="total">0</b> {{ DEVISE }}</div>{% endif %}
+    </section>
+
+    <div class="boutons-bas">
+      <a class="btn" href="{% url 'stock:accueil' %}">Annuler</a>
+      <button type="submit" class="btn {% if type == 'entree' %}btn-vert{% else %}btn-orange{% endif %} btn-grand">
+        {% icone 'valider' %} {% if type == 'entree' %}Enregistrer l'entrée{% else %}Enregistrer la sortie{% endif %}
+      </button>
+    </div>
+  </form>
+</main>
+{{ lignes_initiales|json_script:"lignes-initiales" }}
+{% endblock %}
+{% block scripts %}
+<script>
+  window.BON = { type: "{{ type }}", api: "{% url 'stock:api_articles' %}" };
+</script>
+<script src="{% static 'stock/bon.js' %}"></script>
+{% endblock %}

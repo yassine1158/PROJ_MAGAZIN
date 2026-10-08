@@ -1,0 +1,6 @@
+<div class="champ">
+  <label for="{{ champ.id_for_label }}">{{ champ.label }}{% if obligatoire %} *{% endif %}</label>
+  {{ champ }}
+  {% if champ.help_text %}<div class="aide">{{ champ.help_text }}</div>{% endif %}
+  {% for e in champ.errors %}<div class="erreur-champ">{{ e }}</div>{% endfor %}
+</div>

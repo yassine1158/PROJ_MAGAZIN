@@ -44,6 +44,7 @@ export class Magasin3D {
   constructor(conteneur) {
     this.conteneur = conteneur;
     this.etageres = new Map(); // id -> { groupe, plateaux[], materiaux, centre, hauteurs[] }
+    this.titresBlocs = [];
     this.horloge = new THREE.Clock();
     this.animationCamera = null;
 
@@ -138,6 +139,7 @@ export class Magasin3D {
     const titre = etiquette(`BLOC ${b.code}`, { taille: 90, fond: b.couleur || '#3b82f6' });
     titre.position.set(zone.position.x, maxH + 1.2, zone.position.z);
     this.scene.add(titre);
+    this.titresBlocs.push(titre);
 
     for (const e of b.etageres) this._ajouterEtagere(b, e);
   }
@@ -227,6 +229,8 @@ export class Magasin3D {
   }
 
   reinitialiser() {
+    // Les grands titres « BLOC X » ne servent qu'en vue d'ensemble : de près, ils cachent la vue.
+    for (const t of this.titresBlocs) t.visible = true;
     for (const e of this.etageres.values()) {
       this._estomper(e, false);
       e.matStructure.color.setHex(COULEUR_ETAGERE);
@@ -247,6 +251,7 @@ export class Magasin3D {
     if (!e) return false;
     // Les autres étagères deviennent transparentes pour bien voir la cible.
     for (const autre of this.etageres.values()) if (autre !== e) this._estomper(autre, true);
+    for (const t of this.titresBlocs) t.visible = false;
     e.matStructure.color.setHex(COULEUR_CIBLE);
     e.matStructure.emissive.setHex(0x7f1d1d);
 

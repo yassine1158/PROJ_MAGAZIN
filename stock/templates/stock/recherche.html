@@ -3,10 +3,10 @@
 {% block titre %}Recherche{% endblock %}
 
 {% block contenu %}
-<main class="page" style="padding-bottom:0">
+<main class="page page-large" style="padding-bottom:0;padding-top:20px">
   <div class="recherche-layout">
     <section class="panneau">
-      <form id="form-recherche" class="card barre-recherche" autocomplete="off">
+      <form id="form-recherche" class="carte barre-recherche" autocomplete="off">
         <input id="q" name="q" type="search" placeholder="Ex. : filtre à huile Volvo, sac ciment, 7assira…" autofocus>
         <input id="photo" name="photo" type="file" accept="image/*" capture="environment" hidden>
         <button type="button" class="icone-btn" id="btn-photo" title="Chercher avec une photo">
@@ -36,9 +36,9 @@
       </div>
     </section>
 
-    <section class="card vue3d" id="vue3d">
+    <section class="carte vue3d" id="vue3d">
       <div class="legende">
-        <div class="card fiche" id="fiche"></div>
+        <div class="carte fiche" id="fiche"></div>
         <div class="outils3d">
           <button type="button" id="btn-vue-ensemble">Vue d'ensemble</button>
           <button type="button" id="btn-vue-dessus">Vue de dessus</button>
@@ -48,7 +48,7 @@
       <div class="plan-vide" id="plan-vide">
         <div>
           <p><b>Le plan du magasin est vide.</b></p>
-          <p>Ajoutez vos blocs et étagères dans <a href="{% url 'admin:stock_bloc_changelist' %}">Administration › Blocs</a>.</p>
+          <p>Ajoutez vos blocs et étagères dans <a href="{% url 'admin:stock_bloc_changelist' %}">Réglages › Plan du magasin</a>.</p>
         </div>
       </div>
     </section>

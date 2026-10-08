@@ -1,0 +1,3 @@
+{% load magasin %}{% for m in messages %}
+<div class="message message-{{ m.tags }}">{% if m.tags == 'success' %}{% icone 'valider' %}{% else %}{% icone 'alerte' %}{% endif %}<div>{{ m }}</div></div>
+{% endfor %}
