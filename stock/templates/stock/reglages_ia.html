@@ -1,0 +1,28 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Recherche IA{% endblock %}
+{% block contenu %}
+<main class="page" style="max-width:820px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>Recherche IA</h1><p>Pour chercher en écrivant comme on parle, ou avec une photo de la pièce.</p></div></div>
+  <section class="carte carte-pad">
+    <p>État :
+      {% if active %}<span class="badge badge-ok">Activée</span>{% if cle_masquee %} <span class="muted petit">clé {{ cle_masquee }}</span>{% endif %}
+      {% else %}<span class="badge badge-gris">Non activée</span> <span class="muted petit">la recherche simple fonctionne quand même</span>{% endif %}
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      <div class="champ">
+        <label for="cle">Clé de l'API Anthropic</label>
+        <input id="cle" name="cle" type="password" placeholder="sk-ant-…" autocomplete="off">
+        <div class="aide">Créez la clé sur console.anthropic.com (rubrique API keys) et achetez du crédit (Plans &amp; Billing).
+          La clé reste sur cet ordinateur.</div>
+      </div>
+      <div class="boutons-bas" style="justify-content:flex-start">
+        <button class="btn btn-vert">{% icone 'valider' %} Enregistrer la clé</button>
+        {% if active %}<button class="btn btn-rouge" name="supprimer" value="1" formnovalidate>{% icone 'poubelle' %} Supprimer la clé</button>{% endif %}
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

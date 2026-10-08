@@ -1,0 +1,44 @@
+{% load static %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bienvenue · {{ SOCIETE }}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <link rel="icon" href="{% static 'stock/logo.png' %}">
+</head>
+<body>
+  <main class="page-connexion">
+    <form method="post" class="carte boite-connexion" style="max-width:460px">
+      {% csrf_token %}
+      <img src="{% static 'stock/logo.png' %}" alt="{{ SOCIETE }}">
+      <h1>Bienvenue 👋</h1>
+      <p class="sous">Première utilisation : créez le compte du responsable du magasin.</p>
+      {% if erreurs %}<div class="message message-error"><div>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>{% endif %}
+      <div class="champ">
+        <label for="prenom">Votre prénom</label>
+        <input id="prenom" name="prenom" value="{{ valeurs.prenom|default:'' }}" placeholder="Facultatif">
+      </div>
+      <div class="champ">
+        <label for="username">Nom d'utilisateur *</label>
+        <input id="username" name="username" value="{{ valeurs.username|default:'' }}" autocomplete="username" required autofocus>
+      </div>
+      <div class="champ">
+        <label for="password">Mot de passe *</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required>
+        <div class="aide">Au moins 8 caractères, pas uniquement des chiffres.</div>
+      </div>
+      <div class="champ">
+        <label for="password2">Retapez le mot de passe *</label>
+        <input type="password" id="password2" name="password2" autocomplete="new-password" required>
+      </div>
+      <label style="display:flex;gap:10px;align-items:flex-start;font-weight:500;margin:6px 0 16px">
+        <input type="checkbox" name="demo" value="1" style="margin-top:4px" {% if valeurs.demo %}checked{% endif %}>
+        <span>Installer un magasin d'exemple pour essayer<br><span class="aide">Blocs, étagères et articles fictifs. À ne pas cocher pour démarrer directement avec vos vraies données.</span></span>
+      </label>
+      <button type="submit" class="btn btn-vert btn-grand">Créer mon compte</button>
+    </form>
+  </main>
+</body>
+</html>

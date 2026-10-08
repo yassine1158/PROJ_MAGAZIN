@@ -22,7 +22,25 @@ et la caméra s'y déplace.
 | **Alertes** | Articles sous le stock minimum, ruptures. |
 | **Rapports** | Tableau de bord, état du stock, consommation par chantier, export **Excel**, bons en **PDF**. |
 
-## Démarrage rapide (Windows)
+## Logiciel Windows (recommandé)
+
+1. Sur GitHub, ouvrir **Releases** (colonne de droite) et télécharger **Installer-Magasin-SI-BETON-….exe**.
+2. Double-cliquer dessus. Si Windows affiche « Windows a protégé votre ordinateur » : *Informations
+   complémentaires* › *Exécuter quand même* (le programme n'est pas signé numériquement).
+3. Ouvrir **Magasin SI BÉTON** depuis l'icône du bureau. Au premier lancement, créer le compte du responsable.
+
+- Le logiciel s'ouvre dans sa propre fenêtre, sans navigateur, et fonctionne sans internet.
+- Les données sont dans `%LOCALAPPDATA%\Magasin SI BETON` (base `db.sqlite3`, photos). Pour une **sauvegarde**,
+  copier ce dossier. Elles sont gardées lors d'une mise à jour ou d'une désinstallation.
+- Les PDF et fichiers Excel sont enregistrés dans `Documents\Magasin SI BETON` et s'ouvrent directement.
+- Recherche IA : menu *Réglages › Recherche IA*, coller la clé.
+- Nécessite Windows 10 ou 11 (avec « Microsoft Edge WebView2 Runtime », déjà présent sur la plupart des PC).
+
+**Publier une nouvelle version :** créer un tag `vX.Y.Z` (ex. `git tag v1.1.0 && git push origin v1.1.0`).
+GitHub construit alors le programme sur Windows, le vérifie et met l'installateur dans *Releases*
+(fichiers : `bureau.py`, `bureau/`, `.github/workflows/windows.yml`).
+
+## Démarrage rapide sans installateur (Windows)
 
 1. Installer **Python** depuis https://www.python.org/downloads/ en cochant **« Add python.exe to PATH »**.
 2. Sur GitHub : bouton vert **Code › Download ZIP**, puis décompresser le dossier.

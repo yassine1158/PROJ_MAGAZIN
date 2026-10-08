@@ -13,7 +13,7 @@
       </p>
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <a class="btn" href="{% url 'stock:bon_pdf' modele bon.pk %}" target="_blank">{% icone 'imprimer' %} Imprimer</a>
+      <a class="btn" href="{% url 'stock:bon_pdf' modele bon.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Imprimer</a>
       {% if type == 'entree' %}<a class="btn btn-vert" href="{% url 'stock:entree' %}">{% icone 'plus' %} Nouvelle entrée</a>{% endif %}
       {% if type == 'sortie' %}<a class="btn btn-orange" href="{% url 'stock:sortie' %}">{% icone 'plus' %} Nouvelle sortie</a>{% endif %}
     </div>

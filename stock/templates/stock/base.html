@@ -35,6 +35,7 @@
       {% if request.user.is_staff %}
       <div class="titre-groupe">Réglages</div>
       <a href="{% url 'admin:stock_bloc_changelist' %}">{% icone 'plan' %} Plan du magasin</a>
+      <a href="{% url 'stock:reglages_ia' %}" class="{% if nom == 'reglages_ia' %}actif{% endif %}">{% icone 'cube' %} Recherche IA</a>
       <a href="{% url 'admin:index' %}">{% icone 'parametres' %} Administration</a>
       {% endif %}
     </nav>

@@ -9,6 +9,8 @@ app_name = 'stock'
 urlpatterns = [
     path('', v.accueil, name='accueil'),
     path('connexion/', v.Connexion.as_view(), name='connexion'),
+    path('bienvenue/', v.bienvenue, name='bienvenue'),
+    path('reglages/ia/', v.reglages_ia, name='reglages_ia'),
     path('deconnexion/', LogoutView.as_view(next_page='stock:connexion'), name='deconnexion'),
     path('recherche/', views.recherche, name='recherche'),
 

@@ -1,7 +1,14 @@
 """Écrans du quotidien : accueil, entrées, sorties, historique des bons, articles."""
+import io
+import os
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import get_user_model, login
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView
 from django.db import transaction
@@ -12,6 +19,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import exports, services
+from .bureau import livrer
 from .forms import ArticleForm, decimal_saisi
 from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Fournisseur, Inventaire, LigneEntree,
@@ -28,6 +36,11 @@ NOMS_BONS = {BonEntree: 'entree', BonSortie: 'sortie', Inventaire: 'inventaire'}
 class Connexion(LoginView):
     template_name = 'stock/connexion.html'
     redirect_authenticated_user = True
+
+    def dispatch(self, request, *args, **kwargs):
+        if not get_user_model().objects.exists():  # tout premier lancement
+            return redirect('stock:bienvenue')
+        return super().dispatch(request, *args, **kwargs)
 
 
 def _article_choix(a):
@@ -245,7 +258,7 @@ def articles(request):
         qs = qs.filter(Q(code__icontains=q) | Q(designation__icontains=q) | Q(mots_cles__icontains=q)
                        | Q(reference_fabricant__icontains=q))
     if request.GET.get('format') == 'excel':
-        return exports.etat_stock(qs)
+        return livrer(request, exports.etat_stock(qs))
     return render(request, 'stock/articles.html', {
         'articles': qs, 'q': q, 'filtre': filtre, 'categorie': categorie,
         'categories': Categorie.objects.all(),
@@ -312,3 +325,67 @@ def article_corriger(request, pk):
         messages.success(request, f'Stock de {article.code} corrigé : {quantite(compte)} {article.unite} ({inv.numero}).')
     return redirect('stock:article_modifier', pk)
 
+
+
+# =========================================================
+# Premier lancement et réglages
+# =========================================================
+
+def bienvenue(request):
+    """Premier lancement : création du compte administrateur (seulement s'il n'existe aucun compte)."""
+    User = get_user_model()
+    if User.objects.exists():
+        return redirect('stock:connexion')
+    erreurs, valeurs = [], {}
+    if request.method == 'POST':
+        valeurs = request.POST
+        nom = request.POST.get('username', '').strip()
+        mdp, mdp2 = request.POST.get('password', ''), request.POST.get('password2', '')
+        if not nom:
+            erreurs.append("Choisissez un nom d'utilisateur.")
+        if mdp != mdp2:
+            erreurs.append('Les deux mots de passe ne sont pas identiques.')
+        if not erreurs:
+            utilisateur = User(username=nom, first_name=request.POST.get('prenom', '').strip()[:150],
+                               is_staff=True, is_superuser=True)
+            try:
+                validate_password(mdp, utilisateur)
+            except ValidationError as e:
+                erreurs += e.messages
+        if not erreurs:
+            utilisateur.set_password(mdp)
+            utilisateur.save()
+            if request.POST.get('demo') and not Article.objects.exists():
+                from .management.commands.demo import Command as Demo
+                call_command(Demo(), stdout=io.StringIO())
+            login(request, utilisateur)
+            messages.success(request, 'Bienvenue ! Votre compte est créé.')
+            return redirect('stock:accueil')
+    return render(request, 'stock/bienvenue.html', {'erreurs': erreurs, 'valeurs': valeurs})
+
+
+@login_required
+def reglages_ia(request):
+    if not request.user.is_staff:
+        raise Http404
+    if request.method == 'POST':
+        cle = request.POST.get('cle', '').strip()
+        fichier = settings.MAGASIN_CLE_IA_FICHIER
+        if request.POST.get('supprimer'):
+            fichier.unlink(missing_ok=True)
+            os.environ.pop('ANTHROPIC_API_KEY', None)
+            settings.MAGASIN_IA_ACTIVE = bool(os.environ.get('ANTHROPIC_AUTH_TOKEN'))
+            messages.success(request, 'Clé supprimée : la recherche simple reste disponible.')
+        elif cle.startswith('sk-ant-'):
+            fichier.write_text(cle)
+            os.environ['ANTHROPIC_API_KEY'] = cle
+            settings.MAGASIN_IA_ACTIVE = True
+            messages.success(request, 'Clé enregistrée : la recherche IA est activée.')
+        else:
+            messages.error(request, 'Cette clé ne semble pas valide (elle commence par « sk-ant- »).')
+        return redirect('stock:reglages_ia')
+    cle = os.environ.get('ANTHROPIC_API_KEY', '')
+    return render(request, 'stock/reglages_ia.html', {
+        'active': settings.MAGASIN_IA_ACTIVE,
+        'cle_masquee': f'{cle[:10]}…{cle[-4:]}' if len(cle) > 20 else '',
+    })

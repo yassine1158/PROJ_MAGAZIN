@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from . import exports
+from .bureau import livrer
 from .models import Article, Bloc, BonEntree, BonSortie, Inventaire, MouvementStock
 from .pdf import reponse_pdf
 from .recherche import rechercher
@@ -155,7 +156,7 @@ def consommation(request):
         date__date__gte=du, date__date__lt=au + timedelta(days=1),
     )
     if request.GET.get('format') == 'excel':
-        return exports.mouvements(mouvements)
+        return livrer(request, exports.mouvements(mouvements))
     lignes = (mouvements.values('chantier__nom', 'article__code', 'article__designation', 'article__unite')
               .annotate(qte=Sum('quantite'), valeur=Sum(VALEUR_MVT))
               .order_by('chantier__nom', 'article__code'))
@@ -179,4 +180,4 @@ def bon_pdf(request, modele, pk):
     if not request.user.has_perm(f'stock.view_{modele}'):
         raise Http404
     bon = get_object_or_404(Modele, pk=pk)
-    return reponse_pdf([bon], bon.numero)
+    return livrer(request, reponse_pdf([bon], bon.numero))

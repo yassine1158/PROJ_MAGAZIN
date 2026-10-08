@@ -1,0 +1,5 @@
+# En plus de requirements.txt, pour construire la version bureau (Windows).
+pywebview>=5.3
+waitress>=3.0
+whitenoise>=6.6
+pyinstaller>=6.10

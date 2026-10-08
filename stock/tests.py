@@ -280,3 +280,55 @@ class EcransTests(Base):
     def test_api_articles(self):
         data = self.client.get(reverse('stock:api_articles'), {'q': 'huile'}).json()
         self.assertEqual(data['articles'][0]['code'], 'FH-01')
+
+
+class PremierLancementTests(TestCase):
+    def test_bienvenue_cree_le_compte_puis_disparait(self):
+        self.assertRedirects(self.client.get(reverse('stock:connexion')), reverse('stock:bienvenue'))
+        rep = self.client.post(reverse('stock:bienvenue'), {
+            'username': 'yassine', 'password': 'Magasin-2026!', 'password2': 'Magasin-2026!', 'demo': '1'})
+        self.assertRedirects(rep, reverse('stock:accueil'))
+        self.assertTrue(get_user_model().objects.get(username='yassine').is_superuser)
+        self.assertTrue(Article.objects.exists())
+        self.client.logout()
+        self.assertRedirects(self.client.get(reverse('stock:bienvenue')), reverse('stock:connexion'))
+
+    def test_bienvenue_refuse_mot_de_passe_faible(self):
+        rep = self.client.post(reverse('stock:bienvenue'), {'username': 'a', 'password': '123', 'password2': '123'})
+        self.assertEqual(rep.status_code, 200)
+        self.assertFalse(get_user_model().objects.exists())
+
+
+class BureauTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_pdf_ouvert_directement(self):
+        import tempfile
+        from pathlib import Path
+        self.entree(self.filtre, 2, 100)
+        bon = BonEntree.objects.get()
+        with tempfile.TemporaryDirectory() as dossier, \
+                override_settings(BUREAU=True, DATA_DIR=Path(dossier)), \
+                mock.patch('stock.bureau.Path.home', return_value=Path(dossier)), \
+                mock.patch('stock.bureau.ouvrir_fichier') as ouvrir:
+            rep = self.client.get(reverse('stock:bon_pdf', args=['bonentree', bon.pk]), HTTP_REFERER='/bons/')
+            self.assertRedirects(rep, '/bons/', fetch_redirect_response=False)
+            chemin = ouvrir.call_args[0][0]
+            self.assertEqual(chemin.name, f'{bon.numero}.pdf')
+            self.assertTrue(chemin.read_bytes().startswith(b'%PDF'))
+
+    def test_reglages_ia(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as dossier, mock.patch.dict(os.environ, {}, clear=False), \
+                override_settings(MAGASIN_CLE_IA_FICHIER=Path(dossier) / 'cle.txt', MAGASIN_IA_ACTIVE=False):
+            self.client.post(reverse('stock:reglages_ia'), {'cle': 'pas-une-cle'})
+            self.assertFalse((Path(dossier) / 'cle.txt').exists())
+            self.client.post(reverse('stock:reglages_ia'), {'cle': 'sk-ant-api03-exemple-de-cle-1234'})
+            self.assertEqual((Path(dossier) / 'cle.txt').read_text(), 'sk-ant-api03-exemple-de-cle-1234')
+            self.assertContains(self.client.get(reverse('stock:reglages_ia')), 'Activée')
+            self.client.post(reverse('stock:reglages_ia'), {'supprimer': '1'})
+            self.assertFalse((Path(dossier) / 'cle.txt').exists())

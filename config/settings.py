@@ -1,19 +1,36 @@
 """Paramètres du logiciel Magasin SI BÉTON.
 
-En production, définir les variables d'environnement :
+En production web, définir les variables d'environnement :
   DJANGO_SECRET_KEY, DJANGO_DEBUG=0, DJANGO_ALLOWED_HOSTS=exemple.pythonanywhere.com
+La version bureau (bureau.py) définit MAGASIN_BUREAU=1 et MAGASIN_DATA_DIR.
 """
 import os
+import secrets
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = os.environ.get(
-    'DJANGO_SECRET_KEY',
-    'dev-only-a-remplacer-en-production-0f3b9c1e7a',
-)
-DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
-ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
+# Version bureau : données dans le dossier de l'utilisateur (base, photos, clés).
+BUREAU = os.environ.get('MAGASIN_BUREAU') == '1'
+DATA_DIR = Path(os.environ.get('MAGASIN_DATA_DIR') or BASE_DIR)
+
+
+def _secret_local():
+    """Clé secrète propre à cette installation, créée au premier lancement."""
+    fichier = DATA_DIR / 'secret.key'
+    if not fichier.exists():
+        fichier.write_text(secrets.token_urlsafe(50))
+    return fichier.read_text().strip()
+
+
+if BUREAU:
+    SECRET_KEY = _secret_local()
+    DEBUG = False
+    ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+else:
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-only-a-remplacer-en-production-0f3b9c1e7a')
+    DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+    ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
 INSTALLED_APPS = [
     'jazzmin',  # doit rester avant django.contrib.admin
@@ -28,6 +45,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    *(['whitenoise.middleware.WhiteNoiseMiddleware'] if BUREAU else []),
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -59,7 +77,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DATA_DIR / 'db.sqlite3',
     }
 }
 
@@ -76,9 +94,12 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATIC_ROOT = None if BUREAU else BASE_DIR / 'staticfiles'
 MEDIA_URL = 'media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = DATA_DIR / 'media'
+# Version bureau : les fichiers du logiciel sont servis directement depuis le programme.
+WHITENOISE_USE_FINDERS = True
+WHITENOISE_AUTOREFRESH = False
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -94,7 +115,21 @@ MAGASIN_SIGNATAIRE = os.environ.get('MAGASIN_SIGNATAIRE', 'LE MAGASINIER')
 # Sans clé, la recherche fonctionne quand même (recherche locale sans IA).
 # Clé : https://console.anthropic.com → API keys, puis ANTHROPIC_API_KEY=... dans l'environnement.
 MAGASIN_IA_MODELE = os.environ.get('MAGASIN_IA_MODELE', 'claude-opus-5-5')
+# Version bureau : la clé peut aussi être enregistrée depuis l'écran Réglages › Recherche IA.
+MAGASIN_CLE_IA_FICHIER = DATA_DIR / 'cle-ia.txt'
+if not os.environ.get('ANTHROPIC_API_KEY') and MAGASIN_CLE_IA_FICHIER.exists():
+    os.environ['ANTHROPIC_API_KEY'] = MAGASIN_CLE_IA_FICHIER.read_text().strip()
 MAGASIN_IA_ACTIVE = bool(os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN'))
+
+if BUREAU:
+    # Pas de console : les erreurs vont dans un fichier, pour pouvoir les envoyer.
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {'fichier': {'class': 'logging.FileHandler', 'filename': DATA_DIR / 'journal.log',
+                                 'encoding': 'utf-8', 'level': 'WARNING'}},
+        'root': {'handlers': ['fichier'], 'level': 'WARNING'},
+    }
 
 JAZZMIN_SETTINGS = {
     'site_title': 'Magasin SI BÉTON',

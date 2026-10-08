@@ -1,0 +1,63 @@
+name: Logiciel Windows
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installer les dépendances
+        run: pip install -r requirements.txt -r bureau/requirements-bureau.txt
+
+      - name: Tests
+        env:
+          ANTHROPIC_API_KEY: ''
+        run: python manage.py test stock
+
+      - name: Construire le programme
+        run: pyinstaller --noconfirm bureau/magasin.spec --distpath build/dist --workpath build/work
+
+      - name: Vérifier le programme construit
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'donnees'
+          $p = Start-Process -FilePath 'build/dist/Magasin SI BETON/Magasin SI BETON.exe' -ArgumentList '--test' -Wait -PassThru
+          $dossier = Join-Path $env:LOCALAPPDATA 'Magasin SI BETON'
+          Get-Content (Join-Path $dossier 'verification.txt') -ErrorAction SilentlyContinue
+          Get-Content (Join-Path $dossier 'erreur-demarrage.txt') -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { throw "Le programme ne démarre pas (code $($p.ExitCode))." }
+
+      - name: Construire l'installateur
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') } else { '0.0.0' }
+          & $iscc "/DVersion=$version" bureau\installateur.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Échec de la construction de l''installateur.' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installateur-windows
+          path: build/installateur/*.exe
+
+      - name: Publier dans Releases
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/installateur/*.exe
+          body: |
+            Téléchargez **Installer-Magasin-SI-BETON-….exe** ci-dessous, puis double-cliquez dessus.
+            Vos données sont gardées lors d'une mise à jour.

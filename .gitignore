@@ -6,3 +6,5 @@ staticfiles/
 .env
 .venv/
 venv/
+build/
+*.spec.bak
