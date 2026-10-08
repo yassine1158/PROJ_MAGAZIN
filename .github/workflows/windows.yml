@@ -40,9 +40,13 @@ jobs:
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'donnees'
           $p = Start-Process -FilePath 'build/dist/Magasin SI BETON/Magasin SI BETON.exe' -ArgumentList '--test' -Wait -PassThru
           $dossier = Join-Path $env:LOCALAPPDATA 'Magasin SI BETON'
-          Get-Content (Join-Path $dossier 'verification.txt') -ErrorAction SilentlyContinue
           Get-Content (Join-Path $dossier 'erreur-demarrage.txt') -ErrorAction SilentlyContinue
-          if ($p.ExitCode -ne 0) { throw "Le programme ne démarre pas (code $($p.ExitCode))." }
+          $rapport = Get-Content (Join-Path $dossier 'verification.txt') -Raw -Encoding utf8 -ErrorAction SilentlyContinue
+          Write-Output $rapport
+          "### Vérification du programme Windows`n``````n$rapport`n``````" | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          if ($p.ExitCode -ne 0 -or -not ($rapport -match 'Vérification réussie')) {
+            throw "Le programme ne démarre pas correctement (code $($p.ExitCode))."
+          }
 
       - name: Construire l'installateur
         shell: pwsh
@@ -51,7 +55,7 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') }
                      elseif ('${{ inputs.version }}') { '${{ inputs.version }}' } else { '0.0.0' }
-          & $iscc "/DVersion=$version" bureau\installateur.iss
+          & $iscc /Q "/DVersion=$version" bureau\installateur.iss
           if ($LASTEXITCODE -ne 0) { throw 'Échec de la construction de l''installateur.' }
 
       - uses: actions/upload-artifact@v4
