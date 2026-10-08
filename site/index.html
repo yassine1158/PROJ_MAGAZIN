@@ -4,192 +4,296 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MagaStock – Logiciel de gestion de magasin et de stock</title>
-  <meta name="description" content="MagaStock : trouvez n'importe quel article en 3D par texte ou par photo, gérez les entrées et sorties, imprimez vos bons. Essai gratuit 30 jours, licence 200 000 FCFA, paiement Wave.">
+  <meta name="description" content="MagaStock : retrouvez chaque article en 3D par texte ou par photo, gérez entrées et sorties, imprimez vos bons. Essai gratuit 30 jours, licence 200 000 FCFA, paiement Wave.">
+  <meta name="theme-color" content="#0a1328">
   <meta property="og:title" content="MagaStock – Gestion de magasin et de stock">
-  <meta property="og:description" content="Trouvez chaque article en 3D, gérez entrées et sorties. Essai gratuit 30 jours.">
+  <meta property="og:description" content="Retrouvez chaque article en 3D, en 3 secondes. Essai gratuit 30 jours.">
   <meta property="og:image" content="images/recherche-3d.jpg">
   <link rel="icon" href="images/produit-icone.svg">
+  <link rel="preload" href="inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
+  <script>document.documentElement.classList.add('js')</script>
 </head>
 <body>
 
-<header class="entete">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="m3 7 9 5 9-5M12 12v10"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+    <symbol id="i-in" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6v18h12V7z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v4m0 3v.01"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2 20c0-3.5 3-6 7-6s7 2.5 7 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14c2.4.6 4 2.9 4 6"/></symbol>
+    <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 10h18M10 10v11"/></symbol>
+    <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="m3 3 18 18M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 5-2.7M14 10.3A10 10 0 0 1 19 13M2 8.8a15 15 0 0 1 4.2-2.6M10.7 5.1A15 15 0 0 1 22 8.8M12 20h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></symbol>
+    <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2-1.5h2a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M3.5 20.5 5 16a8.5 8.5 0 1 1 3 3z"/><path d="M9 8.5c0 3.5 3 6.5 6.5 6.5l1-1.6-2-1-1 .9c-1-.4-2.4-1.8-2.8-2.8l.9-1-1-2z"/></symbol>
+  </defs>
+</svg>
+
+<header class="entete" id="entete">
   <div class="conteneur entete-in">
-    <a href="#" class="logo"><img src="images/produit-logo.svg" alt="MagaStock"></a>
-    <nav class="nav" id="nav">
+    <a href="#" class="marque" aria-label="MagaStock, accueil">
+      <img src="images/produit-icone.svg" alt="" width="36" height="36">
+      <span>Maga<b>Stock</b></span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Menu">
       <a href="#fonctions">Fonctions</a>
-      <a href="#3d">Recherche 3D</a>
+      <a href="#apercu">Aperçu</a>
       <a href="#prix">Prix</a>
       <a href="#acheter">Acheter</a>
-      <a href="#faq">Questions</a>
+      <a href="#faq">FAQ</a>
+      <a class="btn btn-primaire" data-lien="telechargement" href="#">Essai gratuit</a>
     </nav>
-    <a class="btn btn-primaire btn-petit" data-lien="telechargement" href="#">Essai gratuit</a>
+    <button class="burger" id="burger" aria-label="Ouvrir le menu" aria-expanded="false" aria-controls="nav"><span></span><span></span><span></span></button>
   </div>
 </header>
 
 <main>
-  <!-- Accroche -->
+  <!-- ============ Accroche ============ -->
   <section class="hero">
+    <div class="hero-fond" aria-hidden="true"></div>
     <div class="conteneur hero-in">
-      <div>
-        <p class="etiquette">Logiciel Windows · fonctionne sans Internet</p>
-        <h1>Votre magasin rangé, <span>chaque article retrouvé en 3 secondes.</span></h1>
-        <p class="intro">Tapez un nom ou prenez une photo : MagaStock montre l'emplacement exact
+      <div class="hero-texte">
+        <p class="badge"><span class="point"></span> Nouveau · recherche par photo et plan 3D</p>
+        <h1>Chaque article de votre magasin, <em>retrouvé en 3 secondes.</em></h1>
+        <p class="intro">Tapez un nom ou prenez une photo : MagaStock affiche l'emplacement exact
           <b>Bloc › Étagère › Niveau</b> sur le plan 3D de votre magasin. Entrées, sorties, bons PDF,
-          alertes de stock et exports Excel, dans un seul logiciel simple.</p>
+          alertes et Excel, dans un seul logiciel.</p>
         <div class="boutons">
-          <a class="btn btn-primaire btn-grand" data-lien="telechargement" href="#">Télécharger l'essai gratuit</a>
-          <a class="btn btn-grand" href="#prix">Voir le prix</a>
+          <a class="btn btn-primaire btn-grand" data-lien="telechargement" href="#"><svg><use href="#i-download"/></svg> Essayer gratuitement</a>
+          <a class="btn btn-verre btn-grand" href="#apercu">Voir le logiciel <svg><use href="#i-arrow"/></svg></a>
         </div>
-        <p class="petit"><span data-essai>30</span> jours gratuits, toutes les fonctions. Sans carte bancaire.</p>
+        <ul class="confiance">
+          <li><svg><use href="#i-check"/></svg> <span data-essai>30</span> jours gratuits</li>
+          <li><svg><use href="#i-check"/></svg> Fonctionne sans Internet</li>
+          <li><svg><use href="#i-check"/></svg> Paiement Wave</li>
+        </ul>
       </div>
-      <figure class="ecran ecran-incline">
-        <img src="images/recherche-3d.jpg" alt="Recherche d'un article et emplacement en 3D" width="1440" height="900">
-      </figure>
+      <div class="hero-visuel">
+        <div class="fenetre">
+          <div class="fenetre-barre"><i></i><i></i><i></i><span>MagaStock — Trouver un article</span></div>
+          <img src="images/recherche-3d.jpg" alt="Recherche d'un article et emplacement en 3D" width="1440" height="900">
+        </div>
+        <div class="bulle bulle-1"><svg><use href="#i-cube"/></svg><div><small>Emplacement</small><b>Bloc A › R1 › Niveau 2</b></div></div>
+        <div class="bulle bulle-2"><svg><use href="#i-camera"/></svg><div><small>Recherche</small><b>par photo</b></div></div>
+      </div>
     </div>
   </section>
 
-  <!-- Fonctions -->
+  <!-- ============ Chiffres ============ -->
+  <section class="chiffres">
+    <div class="conteneur chiffres-in">
+      <div><b>3 s</b><span>pour retrouver un article</span></div>
+      <div><b>3D</b><span>plan réel de votre magasin</span></div>
+      <div><b>100 %</b><span>hors ligne, sur votre PC</span></div>
+      <div><b>1 fois</b><span>payé, sans abonnement</span></div>
+    </div>
+  </section>
+
+  <!-- ============ Fonctions ============ -->
   <section class="section" id="fonctions">
     <div class="conteneur">
-      <h2>Tout ce qu'il faut pour gérer un magasin</h2>
-      <p class="sous-titre">Pensé pour les magasins de chantier, d'atelier, de pièces détachées et de matériaux.</p>
-      <div class="cartes">
-        <article class="carte"><div class="pastille">🔎</div><h3>Recherche intelligente</h3>
-          <p>Par nom, code, mot local ou photo. L'IA comprend « filtre zit Volvo » comme « filtre à huile Volvo ».</p></article>
-        <article class="carte"><div class="pastille">🧊</div><h3>Plan 3D du magasin</h3>
-          <p>L'article trouvé s'allume sur son étagère et son niveau. Fini les recherches à la main.</p></article>
-        <article class="carte"><div class="pastille">📥</div><h3>Entrées et sorties</h3>
-          <p>Bons d'entrée et de sortie en quelques clics, par chantier ou par engin, avec coût moyen pondéré.</p></article>
-        <article class="carte"><div class="pastille">🖨️</div><h3>PDF et Excel</h3>
-          <p>Bons imprimables avec votre logo, état du stock, consommation par chantier, inventaires.</p></article>
-        <article class="carte"><div class="pastille">⚠️</div><h3>Alertes de stock</h3>
-          <p>La liste « À commander » se remplit toute seule quand un article passe sous son minimum.</p></article>
-        <article class="carte"><div class="pastille">👥</div><h3>Plusieurs utilisateurs</h3>
-          <p>Un compte par magasinier : on sait qui a fait chaque entrée et chaque sortie.</p></article>
+      <div class="entete-section revele">
+        <p class="surtitre">Fonctions</p>
+        <h2>Tout pour tenir un magasin propre et à jour</h2>
+        <p>Pensé pour les magasins de chantier, d'atelier, de pièces détachées et de matériaux.</p>
+      </div>
+      <div class="grille-fonctions">
+        <article class="fonction fonction-large revele">
+          <div class="icone"><svg><use href="#i-search"/></svg></div>
+          <h3>Recherche intelligente</h3>
+          <p>Par nom, code, mot utilisé au magasin ou photo. L'IA comprend « filtre zit Volvo » comme « filtre à huile Volvo »,
+            même avec des fautes.</p>
+        </article>
+        <article class="fonction fonction-large revele">
+          <div class="icone orange"><svg><use href="#i-cube"/></svg></div>
+          <h3>Plan 3D du magasin</h3>
+          <p>L'article trouvé s'allume sur son étagère et son niveau. Un nouveau magasinier trouve tout dès le premier jour.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-in"/></svg></div>
+          <h3>Entrées et sorties</h3>
+          <p>Bons en quelques clics, par chantier ou par engin, avec coût moyen pondéré.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-file"/></svg></div>
+          <h3>PDF et Excel</h3>
+          <p>Bons imprimables avec votre logo, état du stock, consommation, inventaires.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-alert"/></svg></div>
+          <h3>Alertes de stock</h3>
+          <p>La liste « À commander » se remplit toute seule sous le stock minimum.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-users"/></svg></div>
+          <h3>Plusieurs comptes</h3>
+          <p>Un compte par magasinier : chaque mouvement est signé.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-palette"/></svg></div>
+          <h3>À vos couleurs</h3>
+          <p>Nom, logo et couleur de votre société, à l'écran et sur les bons.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-check"/></svg></div>
+          <h3>Inventaires</h3>
+          <p>Comptez le stock réel, l'écart est corrigé et tracé automatiquement.</p>
+        </article>
+        <article class="fonction fonction-large revele">
+          <div class="icone orange"><svg><use href="#i-layout"/></svg></div>
+          <h3>Éditeur de plan</h3>
+          <p>Dessinez le magasin tel qu'il est : murs, pièces, blocs, étagères, portes, bureau, poteaux, quai… à la souris, avec les cotes en mètres.</p>
+        </article>
       </div>
     </div>
   </section>
 
-  <!-- 3D -->
-  <section class="section section-claire" id="3d">
-    <div class="conteneur deux-colonnes">
-      <div>
-        <h2>Dessinez votre magasin, comme il est vraiment</h2>
-        <p>Avec l'éditeur de plan, tracez les murs, les pièces, les blocs et les étagères à la souris.
-          Ajoutez portes, portail, fenêtres, bureau, poteaux, quai de chargement, extincteurs…</p>
-        <ul class="liste-ok">
-          <li>Cotes en mètres, grille et aimantation</li>
-          <li>Vue 2D et vue 3D, tourner et zoomer</li>
-          <li>Changement de rangement sans perdre le stock</li>
-        </ul>
-      </div>
-      <figure class="ecran"><img src="images/editeur.jpg" alt="Éditeur de plan du magasin" loading="lazy" width="1440" height="900"></figure>
-    </div>
-    <div class="conteneur deux-colonnes inverse">
-      <div>
-        <h2>Le magasin en 3D, avec votre logo</h2>
-        <p>Chaque société met son nom, son logo et sa couleur. Le logiciel s'adapte à votre image,
-          sur vos bons PDF comme à l'écran.</p>
-        <ul class="liste-ok">
-          <li>Fonctionne sur un seul PC, sans Internet</li>
-          <li>Accessible aussi depuis un téléphone sur le réseau du magasin</li>
-          <li>Données gardées sur votre ordinateur</li>
-        </ul>
-      </div>
-      <figure class="ecran"><img src="images/plan-3d.jpg" alt="Vue 3D du magasin" loading="lazy" width="1440" height="900"></figure>
-    </div>
-  </section>
-
-  <!-- Galerie -->
-  <section class="section">
+  <!-- ============ Aperçu (onglets) ============ -->
+  <section class="section section-sombre" id="apercu">
     <div class="conteneur">
-      <h2>En images</h2>
-      <div class="galerie">
-        <figure class="ecran"><img src="images/accueil.jpg" alt="Accueil du logiciel" loading="lazy" width="1440" height="900"><figcaption>Accueil</figcaption></figure>
-        <figure class="ecran"><img src="images/sortie.jpg" alt="Bon de sortie" loading="lazy" width="1440" height="900"><figcaption>Bon de sortie</figcaption></figure>
-        <figure class="ecran"><img src="images/tableau.jpg" alt="Tableau de bord" loading="lazy" width="1440" height="900"><figcaption>Tableau de bord</figcaption></figure>
-        <figure class="ecran telephone"><img src="images/mobile.jpg" alt="Recherche sur téléphone" loading="lazy" width="780" height="1688"><figcaption>Sur téléphone</figcaption></figure>
+      <div class="entete-section revele">
+        <p class="surtitre">Aperçu</p>
+        <h2>Simple à utiliser, dès le premier jour</h2>
+        <p>Des écrans clairs, de gros boutons, en français. Cliquez pour découvrir.</p>
+      </div>
+      <div class="onglets revele" role="tablist" aria-label="Écrans du logiciel">
+        <button role="tab" aria-selected="true" data-image="recherche-3d" data-legende="Tapez ou photographiez un article : son emplacement s'allume en 3D.">Recherche 3D</button>
+        <button role="tab" aria-selected="false" data-image="editeur" data-legende="Dessinez murs, blocs et étagères. Cotes en mètres, grille et aimantation.">Éditeur de plan</button>
+        <button role="tab" aria-selected="false" data-image="plan-3d" data-legende="Tout le magasin en 3D : tournez, zoomez, vérifiez avant d'enregistrer.">Magasin en 3D</button>
+        <button role="tab" aria-selected="false" data-image="sortie" data-legende="Une sortie en quelques secondes, pour un chantier ou un engin, puis le bon en PDF.">Bon de sortie</button>
+        <button role="tab" aria-selected="false" data-image="tableau" data-legende="Valeur du stock, mouvements du mois, articles à commander.">Tableau de bord</button>
+        <button role="tab" aria-selected="false" data-image="accueil" data-legende="L'accueil : chercher, entrer, sortir. Tout est à un clic.">Accueil</button>
+      </div>
+      <div class="fenetre fenetre-grande revele">
+        <div class="fenetre-barre"><i></i><i></i><i></i><span id="apercu-titre">MagaStock — Recherche 3D</span></div>
+        <img id="apercu-image" src="images/recherche-3d.jpg" alt="Écran du logiciel MagaStock" width="1440" height="900" loading="lazy">
+      </div>
+      <p class="legende-apercu" id="apercu-legende">Tapez ou photographiez un article : son emplacement s'allume en 3D.</p>
+    </div>
+  </section>
+
+  <!-- ============ Téléphone ============ -->
+  <section class="section">
+    <div class="conteneur deux-colonnes">
+      <div class="revele">
+        <p class="surtitre">Partout dans le magasin</p>
+        <h2>Le magasinier cherche depuis son téléphone</h2>
+        <p class="texte-large">Le logiciel tourne sur le PC du bureau. Sur le Wi-Fi du magasin, les téléphones et tablettes
+          s'y connectent : on cherche un article debout devant les étagères, photo à l'appui.</p>
+        <ul class="liste-ok">
+          <li><svg><use href="#i-check"/></svg> Aucune application à installer sur les téléphones</li>
+          <li><svg><use href="#i-check"/></svg> Pas d'Internet nécessaire, pas d'abonnement</li>
+          <li><svg><use href="#i-check"/></svg> Vos données restent chez vous</li>
+        </ul>
+      </div>
+      <div class="telephone revele">
+        <div class="telephone-cadre"><img src="images/mobile.jpg" alt="Recherche sur téléphone" width="780" height="1688" loading="lazy"></div>
       </div>
     </div>
   </section>
 
-  <!-- Prix -->
+  <!-- ============ Prix ============ -->
   <section class="section section-claire" id="prix">
     <div class="conteneur">
-      <h2>Un prix simple</h2>
-      <p class="sous-titre">Payé une seule fois. Pas d'abonnement.</p>
+      <div class="entete-section revele">
+        <p class="surtitre">Prix</p>
+        <h2>Un prix clair, payé une seule fois</h2>
+        <p>Pas d'abonnement, pas de frais cachés. Essayez d'abord, payez seulement si vous êtes convaincu.</p>
+      </div>
       <div class="tarifs">
-        <div class="tarif">
+        <div class="tarif revele">
           <h3>Essai gratuit</h3>
+          <p class="tarif-desc">Pour découvrir le logiciel avec vos vrais articles.</p>
           <div class="montant">0 <small>FCFA</small></div>
-          <p class="duree"><span data-essai>30</span> jours</p>
+          <p class="duree"><span data-essai>30</span> jours, toutes les fonctions</p>
           <ul class="liste-ok">
-            <li>Toutes les fonctions</li><li>Données d'exemple incluses</li><li>Vos données gardées après l'essai</li>
+            <li><svg><use href="#i-check"/></svg> Recherche 3D, plan, bons, PDF, Excel</li>
+            <li><svg><use href="#i-check"/></svg> Données d'exemple pour essayer</li>
+            <li><svg><use href="#i-check"/></svg> Vos données gardées après l'essai</li>
           </ul>
-          <a class="btn btn-grand" data-lien="telechargement" href="#">Télécharger</a>
+          <a class="btn btn-contour btn-grand" data-lien="telechargement" href="#">Télécharger l'essai</a>
         </div>
-        <div class="tarif tarif-vedette">
+        <div class="tarif tarif-vedette revele">
           <span class="ruban">Licence à vie</span>
           <h3>MagaStock</h3>
+          <p class="tarif-desc">Pour 1 ordinateur, utilisé sans limite.</p>
           <div class="montant" data-prix>200 000 FCFA</div>
-          <p class="duree">pour 1 ordinateur, payé une fois</p>
+          <p class="duree">payé une fois · aucun abonnement</p>
           <ul class="liste-ok">
-            <li>Toutes les fonctions, sans limite</li><li>Mises à jour de la version</li>
-            <li>Votre logo et vos couleurs</li><li>Aide à l'installation</li>
+            <li><svg><use href="#i-check"/></svg> Toutes les fonctions, sans limite</li>
+            <li><svg><use href="#i-check"/></svg> Mises à jour de la version</li>
+            <li><svg><use href="#i-check"/></svg> Votre logo et vos couleurs</li>
+            <li><svg><use href="#i-check"/></svg> Aide à l'installation</li>
           </ul>
           <a class="btn btn-wave btn-grand" data-lien="wave" href="#" target="_blank" rel="noopener">Payer avec Wave</a>
-          <a class="btn btn-primaire btn-grand" data-masquer-si="wave" href="#acheter">Comment acheter</a>
+          <a class="btn btn-blanc btn-grand" data-masquer-si="wave" href="#acheter">Comment acheter</a>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Acheter -->
+  <!-- ============ Acheter ============ -->
   <section class="section" id="acheter">
     <div class="conteneur">
-      <h2>Comment acheter</h2>
+      <div class="entete-section revele">
+        <p class="surtitre">Acheter</p>
+        <h2>Activé en 4 étapes, depuis votre téléphone</h2>
+      </div>
       <ol class="etapes">
-        <li><b>Téléchargez et essayez</b><span>Installez MagaStock et utilisez-le gratuitement <span data-essai>30</span> jours.</span></li>
-        <li><b>Payez par Wave</b><span><span data-prix>200 000 FCFA</span> avec Wave, depuis votre téléphone.</span></li>
-        <li><b>Envoyez la preuve</b><span>Avec le <b>code de votre ordinateur</b>, affiché dans le logiciel (menu Licence).</span></li>
-        <li><b>Recevez votre clé</b><span>Collez-la dans le logiciel : c'est activé, pour toujours.</span></li>
+        <li class="revele"><span class="num">1</span><b>Téléchargez et essayez</b><p>Installez MagaStock et utilisez-le gratuitement <span data-essai>30</span> jours.</p></li>
+        <li class="revele"><span class="num">2</span><b>Payez par Wave</b><p><span data-prix>200 000 FCFA</span>, en quelques secondes depuis votre téléphone.</p></li>
+        <li class="revele"><span class="num">3</span><b>Envoyez la preuve</b><p>Avec le <b>code de votre ordinateur</b>, affiché dans le logiciel (menu Licence).</p></li>
+        <li class="revele"><span class="num">4</span><b>Recevez votre clé</b><p>Collez-la dans le logiciel : c'est activé, pour toujours.</p></li>
       </ol>
-      <div class="boutons centre">
+      <div class="boutons centre revele">
         <a class="btn btn-wave btn-grand" data-lien="wave" href="#" target="_blank" rel="noopener">Payer avec Wave</a>
-        <a class="btn btn-vert btn-grand" data-lien="whatsapp" href="#" target="_blank" rel="noopener">Envoyer la preuve sur WhatsApp</a>
+        <a class="btn btn-vert btn-grand" data-lien="whatsapp" href="#" target="_blank" rel="noopener"><svg><use href="#i-whatsapp"/></svg> Envoyer la preuve sur WhatsApp</a>
       </div>
     </div>
   </section>
 
-  <!-- FAQ -->
+  <!-- ============ FAQ ============ -->
   <section class="section section-claire" id="faq">
     <div class="conteneur etroit">
-      <h2>Questions fréquentes</h2>
-      <details><summary>Faut-il Internet ?</summary>
-        <p>Non. MagaStock fonctionne sur votre ordinateur, sans Internet. Seule la recherche par IA (facultative) utilise Internet ;
-          sans elle, la recherche simple fonctionne toujours.</p></details>
-      <details><summary>Que se passe-t-il à la fin de l'essai ?</summary>
-        <p>Le logiciel demande une clé d'activation. Vos articles, bons et plans sont conservés : il suffit d'activer pour continuer.</p></details>
-      <details><summary>Sur quel ordinateur ?</summary>
-        <p>Windows 10 ou 11. Une licence = un ordinateur. Les autres appareils (téléphones, tablettes) peuvent s'y connecter sur le réseau du magasin.</p></details>
-      <details><summary>Je change d'ordinateur ?</summary>
-        <p>Contactez-nous avec le nouveau code machine : nous transférons votre licence.</p></details>
-      <details><summary>Mes données sont-elles en sécurité ?</summary>
-        <p>Elles restent sur votre ordinateur. Pensez à faire une copie régulière du dossier de données.</p></details>
+      <div class="entete-section revele">
+        <p class="surtitre">FAQ</p>
+        <h2>Questions fréquentes</h2>
+      </div>
+      <div class="faq revele">
+        <details><summary>Faut-il Internet ?</summary>
+          <p>Non. MagaStock fonctionne sur votre ordinateur, sans Internet. Seule la recherche par IA (facultative) utilise Internet ;
+            sans elle, la recherche simple fonctionne toujours.</p></details>
+        <details><summary>Que se passe-t-il à la fin de l'essai ?</summary>
+          <p>Le logiciel demande une clé d'activation. Vos articles, bons et plans sont conservés : il suffit d'activer pour continuer.</p></details>
+        <details><summary>Sur quel ordinateur ?</summary>
+          <p>Windows 10 ou 11. Une licence = un ordinateur. Les téléphones et tablettes peuvent s'y connecter sur le réseau du magasin.</p></details>
+        <details><summary>Je change d'ordinateur ?</summary>
+          <p>Contactez-nous avec le code du nouvel ordinateur : nous transférons votre licence.</p></details>
+        <details><summary>Mes données sont-elles en sécurité ?</summary>
+          <p>Elles restent sur votre ordinateur, pas sur Internet. Pensez à en faire une copie régulière.</p></details>
+        <details><summary>Puis-je reprendre mes articles existants ?</summary>
+          <p>Oui : créez vos articles dans le logiciel ou faites-vous aider à l'installation pour reprendre votre liste.</p></details>
+      </div>
     </div>
   </section>
 
-  <!-- Contact -->
-  <section class="section contact" id="contact">
-    <div class="conteneur centre-texte">
-      <h2>Une question ?</h2>
-      <p>Demandez une démonstration ou de l'aide pour l'installation.</p>
+  <!-- ============ Appel final ============ -->
+  <section class="appel" id="contact">
+    <div class="conteneur appel-in revele">
+      <h2>Prêt à ranger votre magasin ?</h2>
+      <p>Essayez MagaStock <span data-essai>30</span> jours gratuitement. Une question ? Écrivez-nous.</p>
       <div class="boutons centre">
-        <a class="btn btn-vert btn-grand" data-lien="whatsapp-contact" href="#" target="_blank" rel="noopener">WhatsApp</a>
-        <a class="btn btn-grand" data-lien="telephone" href="#"></a>
-        <a class="btn btn-grand" data-lien="email" href="#"></a>
-        <a class="btn btn-primaire btn-grand" data-lien="telechargement" href="#">Télécharger l'essai</a>
+        <a class="btn btn-blanc btn-grand" data-lien="telechargement" href="#"><svg><use href="#i-download"/></svg> Télécharger l'essai</a>
+        <a class="btn btn-vert btn-grand" data-lien="whatsapp-contact" href="#" target="_blank" rel="noopener"><svg><use href="#i-whatsapp"/></svg> WhatsApp</a>
+        <a class="btn btn-verre btn-grand" data-lien="telephone" href="#"></a>
+        <a class="btn btn-verre btn-grand" data-lien="email" href="#"></a>
       </div>
     </div>
   </section>
@@ -197,10 +301,21 @@
 
 <footer class="pied">
   <div class="conteneur pied-in">
-    <img src="images/produit-logo.svg" alt="MagaStock" height="28">
-    <span>© <span id="annee"></span> MagaStock · Gestion de magasin et de stock</span>
+    <div class="pied-marque">
+      <a href="#" class="marque"><img src="images/produit-icone.svg" alt="" width="30" height="30"><span>Maga<b>Stock</b></span></a>
+      <p>Gestion de magasin et de stock, avec recherche 3D.</p>
+    </div>
+    <nav class="pied-liens" aria-label="Pied de page">
+      <a href="#fonctions">Fonctions</a><a href="#apercu">Aperçu</a><a href="#prix">Prix</a><a href="#faq">FAQ</a>
+    </nav>
+    <p class="pied-copy">© <span id="annee"></span> MagaStock</p>
   </div>
 </footer>
+
+<div class="barre-mobile" id="barre-mobile">
+  <a class="btn btn-primaire" data-lien="telechargement" href="#">Essai gratuit</a>
+  <a class="btn btn-contour" href="#prix"><span data-prix>200 000 FCFA</span></a>
+</div>
 
 <script src="config.js"></script>
 <script src="site.js"></script>
