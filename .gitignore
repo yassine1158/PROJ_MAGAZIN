@@ -8,3 +8,4 @@ staticfiles/
 venv/
 build/
 *.spec.bak
+.essai

@@ -502,3 +502,79 @@ class EditeurPlanTests(Base):
         self.assertEqual(rep.status_code, 400)
         self.assertIn('inconnu', rep.json()['erreurs'][0])
         self.assertTrue(Bloc.objects.exists())
+
+
+class LicenceTests(TestCase):
+    """Essai gratuit, blocage à la fin de l'essai et activation par clé signée."""
+
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        from . import licence
+
+        from django.core.cache import cache
+
+        cache.clear()  # paramètres mis en cache par d'autres tests
+        self.licence = licence
+        self.privee = Ed25519PrivateKey.generate()
+        publique = self.privee.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        self.dossier = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dossier.cleanup)
+        for patch in (mock.patch('config.produit.CLE_PUBLIQUE', licence._b64(publique)),
+                      mock.patch.object(licence, 'code_machine', return_value='AAAA-1111'),
+                      override_settings(DATA_DIR=Path(self.dossier.name))):
+            self.enterContext(patch)
+        self.user = get_user_model().objects.create_superuser('admin', 'a@a.fr', 'motdepasse-solide')
+        self.client.force_login(self.user)
+
+    def expirer(self):
+        from datetime import date, timedelta
+
+        p = Parametres.actuels()
+        p.debut_essai = date.today() - timedelta(days=31)
+        p.save()
+
+    def test_sans_cle_publique_pas_de_verrou(self):
+        with mock.patch('config.produit.CLE_PUBLIQUE', ''):
+            self.expirer()
+            self.assertEqual(self.licence.etat().mode, 'libre')
+            self.assertEqual(self.client.get('/').status_code, 200)
+
+    def test_essai_puis_blocage(self):
+        etat = self.licence.etat()
+        self.assertEqual((etat.mode, etat.jours_restants), ('essai', 30))
+        self.assertContains(self.client.get('/'), "Version d'essai")
+        self.expirer()
+        self.assertRedirects(self.client.get('/articles/'), reverse('stock:activation'))
+        self.assertContains(self.client.get(reverse('stock:activation')), 'AAAA-1111')
+
+    def test_essai_garde_la_date_la_plus_ancienne(self):
+        from datetime import date, timedelta
+
+        ancien = date.today() - timedelta(days=40)
+        (self.licence.settings.DATA_DIR / '.essai').write_text(ancien.isoformat())
+        self.assertEqual(self.licence.debut_essai(), ancien)
+        self.assertTrue(self.licence.etat().bloque)
+
+    def test_activation(self):
+        self.expirer()
+        cle = self.licence.signer(self.privee, 'Client Test', 'aaaa-1111')
+        rep = self.client.post(reverse('stock:activation'), {'cle': cle[:40] + '\n' + cle[40:]})
+        self.assertEqual(rep.status_code, 302)
+        etat = self.licence.etat()
+        self.assertEqual((etat.mode, etat.client), ('active', 'Client Test'))
+        self.assertEqual(self.client.get('/articles/').status_code, 200)
+
+    def test_cle_refusee(self):
+        autre = self.licence.signer(self.privee, 'X', 'BBBB-2222')
+        with self.assertRaisesMessage(ValueError, 'autre ordinateur'):
+            self.licence.lire_cle(autre)
+        fausse = autre.split('.')[0] + '.' + self.licence._b64(b'0' * 64)
+        with self.assertRaisesMessage(ValueError, "n'est pas valable"):
+            self.licence.lire_cle(fausse)
+        self.client.post(reverse('stock:activation'), {'cle': 'nimporte.quoi'})
+        self.assertEqual(Parametres.actuels().cle_licence, '')

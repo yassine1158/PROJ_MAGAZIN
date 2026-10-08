@@ -112,11 +112,15 @@ def verifier(url, dossier):
     client.force_login(testeur)
     for chemin in ['/', '/entree/', '/sortie/', '/articles/', '/articles/nouveau/', '/bons/', '/recherche/',
                    '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
-                   '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/admin/']:
+                   '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/activation/', '/admin/']:
         code = client.get(chemin).status_code
         assert code == 200, f'{chemin} → {code}'
         lignes.append(f'OK écran {chemin}')
     testeur.delete()
+    from stock import licence
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey  # noqa: F401  (clés de licence)
+    lignes.append(f'OK licence (code machine {licence.code_machine()})')
     import webview  # noqa: F401  (la bibliothèque de la fenêtre est bien incluse)
     lignes.append('OK fenêtre')
     (dossier / 'verification.txt').write_text('\n'.join(lignes) + '\nVérification réussie.\n', encoding='utf-8')

@@ -400,6 +400,8 @@ class Parametres(models.Model):
     devise = models.CharField(max_length=10, default='FCFA')
     signataire = models.CharField('signature des bons', max_length=100, default='Le magasinier',
                                   help_text='Texte sous la case de signature, sur les bons imprimés.')
+    debut_essai = models.DateField("début de l'essai", null=True, blank=True)
+    cle_licence = models.TextField("clé d'activation", blank=True)
 
     CLE_CACHE = 'parametres-societe'
 

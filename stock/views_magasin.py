@@ -393,3 +393,33 @@ def reglages_ia(request):
         'active': settings.MAGASIN_IA_ACTIVE,
         'cle_masquee': f'{cle[:10]}…{cle[-4:]}' if len(cle) > 20 else '',
     })
+
+
+# =========================================================
+# Licence
+# =========================================================
+
+def activation(request):
+    """État de la licence et saisie de la clé (accessible même quand l'essai est terminé)."""
+    from config import produit
+
+    from . import licence
+
+    if request.method == 'POST':
+        try:
+            cle = licence.activer(request.POST.get('cle', ''))
+            messages.success(request, f'Logiciel activé pour « {cle.client} ». Merci !')
+            return redirect('stock:accueil')
+        except ValueError as e:
+            messages.error(request, str(e))
+    whatsapp = ''
+    if produit.WHATSAPP:
+        from urllib.parse import quote
+        texte = (f"Bonjour, je souhaite activer {produit.NOM}. Code de mon ordinateur : {licence.code_machine()}. "
+                 f"Société : {Parametres.actuels().nom_societe or '…'}. Voici ma preuve de paiement Wave :")
+        whatsapp = f'https://wa.me/{produit.WHATSAPP}?text={quote(texte)}'
+    return render(request, 'stock/activation.html', {
+        'etat': licence.etat(), 'code': licence.code_machine(), 'prix': produit.PRIX,
+        'wave': produit.WAVE_LIEN, 'whatsapp': whatsapp, 'site': produit.SITE_WEB,
+        'essai_jours': produit.ESSAI_JOURS,
+    })

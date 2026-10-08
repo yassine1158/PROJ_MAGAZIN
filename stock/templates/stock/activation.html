@@ -1,0 +1,54 @@
+{% load static magasin %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Licence · {{ PRODUIT }}</title>
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+</head>
+<body>
+<main class="page-connexion">
+  <div class="carte boite-connexion" style="max-width:560px">
+    <img src="{% static 'stock/produit-logo.svg' %}" alt="{{ PRODUIT }}">
+    {% include 'stock/_messages.html' %}
+    {% if etat.mode == 'active' %}
+      <h1>Logiciel activé ✓</h1>
+      <p class="sous">Licence au nom de <b>{{ etat.client }}</b> pour cet ordinateur.</p>
+      <a class="btn btn-vert btn-grand" href="{% url 'stock:accueil' %}">Retour au logiciel</a>
+    {% else %}
+      {% if etat.mode == 'expire' %}
+        <h1>L'essai gratuit est terminé</h1>
+        <p class="sous">Vos données sont conservées. Activez le logiciel pour continuer à l'utiliser.</p>
+      {% elif etat.mode == 'essai' %}
+        <h1>Version d'essai</h1>
+        <p class="sous">Encore <b>{{ etat.jours_restants }} jour{{ etat.jours_restants|pluralize }}</b> d'essai gratuit (sur {{ essai_jours }}).</p>
+      {% else %}
+        <h1>Licence</h1><p class="sous">Le verrouillage n'est pas configuré sur cette version.</p>
+      {% endif %}
+
+      <ol class="etapes-activation">
+        <li><b>Payez {{ prix }}</b> (licence pour cet ordinateur){% if wave %} :
+          <a class="btn btn-wave" href="{{ wave }}" target="_blank" rel="noopener">Payer avec Wave</a>{% else %} par Wave.{% endif %}</li>
+        <li>Envoyez la preuve de paiement avec le <b>code de cet ordinateur</b> :
+          <div class="code-machine" title="Code de cet ordinateur">{{ code }}</div>
+          {% if whatsapp %}<a class="btn" href="{{ whatsapp }}" target="_blank" rel="noopener">Envoyer par WhatsApp</a>{% endif %}
+        </li>
+        <li>Vous recevez votre <b>clé d'activation</b> : collez-la ci-dessous.</li>
+      </ol>
+      <form method="post">
+        {% csrf_token %}
+        <div class="champ">
+          <label for="cle">Clé d'activation</label>
+          <textarea id="cle" name="cle" rows="3" placeholder="Collez ici la clé reçue" required style="font-family:monospace;font-size:13px"></textarea>
+        </div>
+        <button class="btn btn-vert btn-grand">{% icone 'cle' %} Activer</button>
+      </form>
+      {% if etat.mode == 'essai' %}<p class="produit-bas"><a href="{% url 'stock:accueil' %}">Continuer l'essai</a></p>{% endif %}
+      {% if site %}<p class="produit-bas"><a href="{{ site }}" target="_blank" rel="noopener">Site de {{ PRODUIT }}</a></p>{% endif %}
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>

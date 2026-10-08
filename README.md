@@ -111,6 +111,28 @@ serveur web.
 3. **Bon d'entrée** (stock initial ou réception) → action *Valider*.
 4. **Bon de sortie** pour chaque sortie → action *Valider*, puis *Imprimer (PDF)*.
 
+## Vente : site web, essai gratuit et licences
+
+**Site web** (`site/`) : page du produit avec captures, prix, paiement Wave et téléchargement. Publié
+automatiquement sur GitHub Pages (`.github/workflows/site.yml`) après l'avoir activé une fois :
+*Settings › Pages › Source : GitHub Actions*. Le prix, le lien Wave, le WhatsApp et le contact se
+règlent dans `site/config.js` (un champ vide masque le bouton).
+
+**Essai et licence** : le logiciel est complet pendant `ESSAI_JOURS` (30 jours), puis demande une clé
+d'activation ; les données sont conservées. Une clé est liée à un ordinateur (code machine affiché dans
+*Licence*). Tant que `CLE_PUBLIQUE` est vide dans `config/produit.py`, aucun verrouillage n'est appliqué.
+
+Mise en place (une seule fois, sur l'ordinateur du vendeur) :
+
+1. Lancer `outils\licences.bat` → choix **1** : crée la paire de clés dans `Documents\MagaStock-vendeur`.
+   **Sauvegarder `cle-privee.txt`** (clé USB, coffre) et ne jamais la publier ni la mettre dans le dépôt.
+2. Copier la ligne `CLE_PUBLIQUE = '…'` affichée dans `config/produit.py`, remplir `WAVE_LIEN` et
+   `WHATSAPP`, puis publier une nouvelle version.
+
+Pour chaque vente : vérifier le paiement Wave, puis `outils\licences.bat` → choix **2**, saisir le nom du
+client et son code machine ; envoyer la clé obtenue au client (elle est aussi notée dans
+`licences-vendues.csv`).
+
 ## Organisation du code
 
 ```
@@ -119,6 +141,9 @@ stock/models.py    blocs, étagères, articles, bons, mouvements
 stock/services.py  règles du stock (validation, annulation, prix moyen) – seul endroit qui modifie le stock
 stock/recherche.py recherche locale + interprétation IA (texte et photo)
 stock/static/stock/magasin3d.js   vue 3D (three.js)
+stock/licence.py   essai gratuit et clés d'activation (Ed25519)
+outils/licences.py outil du vendeur : créer les clés et les licences
+site/              site web du produit
 stock/tests.py     tests : python manage.py test stock
 ```
 

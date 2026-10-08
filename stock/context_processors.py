@@ -21,6 +21,9 @@ def magasin(request):
         'COULEURS': {'primaire': primaire, 'fonce': fonce, 'clair': clair},
         'BUREAU': settings.BUREAU,
     }
+    if produit.CLE_PUBLIQUE:
+        from .licence import etat
+        contexte['LICENCE'] = getattr(request, 'licence', None) or etat()
     if getattr(request, 'user', None) and request.user.is_authenticated:
         contexte['NB_ALERTES'] = Article.objects.en_alerte().count()
     return contexte

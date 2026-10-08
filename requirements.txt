@@ -5,3 +5,4 @@ openpyxl>=3.1
 Pillow>=10.0
 anthropic>=1.0
 pydantic>=2.0
+cryptography>=42

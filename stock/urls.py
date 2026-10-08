@@ -10,6 +10,7 @@ urlpatterns = [
     path('', v.accueil, name='accueil'),
     path('connexion/', v.Connexion.as_view(), name='connexion'),
     path('bienvenue/', v.bienvenue, name='bienvenue'),
+    path('activation/', v.activation, name='activation'),
     path('reglages/ia/', v.reglages_ia, name='reglages_ia'),
     path('reglages/societe/', r.societe, name='reglages_societe'),
     path('reglages/plan/', r.plan, name='reglages_plan'),

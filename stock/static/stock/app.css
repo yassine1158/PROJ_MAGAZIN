@@ -402,3 +402,24 @@ kbd { background: var(--surface-2); border: 1px solid var(--bord); border-bottom
 #plan .cote { fill: #57534e; font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none;
   paint-order: stroke; stroke: #fbfcfd; }
 #plan .poignee-rotation { cursor: grab; }
+
+/* Licence */
+.bandeau-essai { display: block; text-align: center; padding: 8px 16px; background: var(--orange-clair); color: #92400e; font-size: 14px; }
+.bandeau-essai:hover { text-decoration: none; background: #ffe6c7; }
+.etapes-activation { padding-left: 20px; margin: 0 0 18px; line-height: 1.6; }
+.etapes-activation li { margin-bottom: 12px; }
+.etapes-activation .btn { margin-top: 6px; }
+.code-machine { font: 700 26px/1.2 ui-monospace, Consolas, monospace; letter-spacing: .08em; background: var(--surface-2);
+  border: 1px dashed var(--bord); border-radius: 10px; padding: 10px; text-align: center; margin: 6px 0; user-select: all; }
+.btn-wave { background: #1dc8ff; border-color: #1dc8ff; color: #04213a; }
+.btn-wave:hover { background: #18b4e8; }
+
+/* Petit écran : la fiche passe sous les boutons de la vue 3D, sur toute la largeur. */
+@media (max-width: 700px) {
+  .vue3d .legende { left: 10px; right: 10px; top: 10px; flex-direction: column-reverse; align-items: stretch; gap: 8px; }
+  .vue3d .outils3d { display: flex; gap: 6px; justify-content: flex-end; }
+  .vue3d .outils3d button { padding: 6px 10px; font-size: 13px; }
+  .fiche { max-width: none; padding: 10px 12px; }
+  .fiche .grand-lieu { font-size: 17px; }
+  .vue3d .aide { display: none; }
+}

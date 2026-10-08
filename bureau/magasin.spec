@@ -12,7 +12,7 @@ NOM = produit.NOM
 
 datas, binaries, hiddenimports = [], [], []
 for paquet in ['django', 'jazzmin', 'reportlab', 'openpyxl', 'PIL', 'anthropic', 'pydantic', 'whitenoise',
-               'waitress', 'webview', 'clr_loader', 'pythonnet']:
+               'waitress', 'webview', 'clr_loader', 'pythonnet', 'cryptography']:
     try:
         d, b, h = collect_all(paquet)
     except Exception:

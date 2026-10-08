@@ -41,6 +41,7 @@
       <a href="{% url 'stock:reglages_utilisateurs' %}" class="{% if nom == 'reglages_utilisateurs' or nom == 'utilisateur_nouveau' or nom == 'utilisateur_modifier' %}actif{% endif %}">{% icone 'utilisateurs' %} Utilisateurs</a>
       <a href="{% url 'stock:reglages_societe' %}" class="{% if nom == 'reglages_societe' %}actif{% endif %}">{% icone 'parametres' %} Ma société</a>
       <a href="{% url 'stock:reglages_ia' %}" class="{% if nom == 'reglages_ia' %}actif{% endif %}">{% icone 'cube' %} Recherche IA</a>
+      {% if LICENCE %}<a href="{% url 'stock:activation' %}" class="{% if nom == 'activation' %}actif{% endif %}">{% icone 'cle' %} Licence</a>{% endif %}
       {% endif %}
     </nav>
     <div class="produit">{{ PRODUIT }} {{ PRODUIT_VERSION }}</div>
@@ -54,6 +55,9 @@
   </aside>
 
   <div class="contenu">
+    {% if LICENCE.mode == 'essai' %}
+      <a class="bandeau-essai" href="{% url 'stock:activation' %}">Version d'essai : encore <b>{{ LICENCE.jours_restants }} jour{{ LICENCE.jours_restants|pluralize }}</b> · Activer le logiciel</a>
+    {% endif %}
     <header class="barre-mobile">
       <button class="btn btn-icone" type="button" onclick="document.body.classList.toggle('menu-ouvert')" aria-label="Menu">{% icone 'menu' %}</button>
       <img src="{{ LOGO_URL }}" alt="">
