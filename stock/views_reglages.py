@@ -87,9 +87,9 @@ def plan(request):
 
 @responsable
 def editeur_plan(request):
-    from .plan import plan_json
+    from .plan import TYPES_ELEMENTS, plan_json
 
-    return render(request, 'stock/reglages/editeur_plan.html', {'plan': plan_json()})
+    return render(request, 'stock/reglages/editeur_plan.html', {'plan': plan_json(), 'types_elements': TYPES_ELEMENTS})
 
 
 @responsable

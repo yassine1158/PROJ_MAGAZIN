@@ -112,12 +112,37 @@ class Mur(models.Model):
     z2 = models.DecimalField(max_digits=7, decimal_places=2)
     epaisseur = models.DecimalField('épaisseur (m)', max_digits=4, decimal_places=2, default=Decimal('0.20'))
     hauteur = models.DecimalField('hauteur (m)', max_digits=5, decimal_places=2, default=Decimal('3.00'))
+    couleur = models.CharField(max_length=7, default='#d6d3d1')
 
     class Meta:
         ordering = ['id']
 
     def __str__(self):
         return f'Mur ({self.x1};{self.z1}) → ({self.x2};{self.z2})'
+
+
+class Element(models.Model):
+    """Objet posé sur le plan : porte, fenêtre, bureau, poteau, quai, zone au sol, texte…
+
+    Position = centre de l'objet ; rotation en degrés (sens des aiguilles d'une montre, vu de dessus).
+    La liste des types et leurs tailles par défaut sont dans stock/plan.py (TYPES_ELEMENTS).
+    """
+    type = models.CharField(max_length=20)
+    nom = models.CharField(max_length=60, blank=True)
+    x = models.DecimalField(max_digits=7, decimal_places=2)
+    z = models.DecimalField(max_digits=7, decimal_places=2)
+    largeur = models.DecimalField(max_digits=6, decimal_places=2)
+    profondeur = models.DecimalField(max_digits=6, decimal_places=2)
+    hauteur = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0'))
+    rotation = models.DecimalField(max_digits=6, decimal_places=2, default=Decimal('0'))
+    couleur = models.CharField(max_length=7, default='#64748b')
+
+    class Meta:
+        ordering = ['id']
+        verbose_name = 'élément du plan'
+
+    def __str__(self):
+        return self.nom or self.type
 
 
 class ArticleQuerySet(models.QuerySet):

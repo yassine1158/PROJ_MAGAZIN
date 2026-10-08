@@ -8,7 +8,9 @@
   const PALETTE = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
 
   // ---------------------------------------------------------------- état
-  let etat = { blocs: [], etageres: [], murs: [] };
+  let etat = { blocs: [], etageres: [], murs: [], elements: [] };
+  const TYPES = CFG.types; // catalogue des objets (portes, bureaux…), défini côté serveur
+  let cotes = true;        // afficher la longueur de chaque mur
   let selection = null;           // { type: 'bloc'|'etagere'|'mur', cle }
   let outil = 'selection';
   let aimant = true;
@@ -19,7 +21,7 @@
   let vue = { x: -2, z: -2, l: 30, h: 20 }; // viewBox
 
   function depuisServeur(plan) {
-    const e = { blocs: [], etageres: [], murs: [] };
+    const e = { blocs: [], etageres: [], murs: [], elements: [] };
     for (const b of plan.blocs) {
       const cle = `b${b.id}`;
       e.blocs.push({ cle, id: b.id, code: b.code, nom: b.nom, couleur: b.couleur, x: b.x, z: b.z,
@@ -31,6 +33,7 @@
       }
     }
     for (const m of plan.murs) e.murs.push({ cle: `m${m.id}`, ...m });
+    for (const o of plan.elements || []) e.elements.push({ cle: `o${o.id}`, ...o });
     return e;
   }
 
@@ -41,6 +44,7 @@
         ...b, etageres: etat.etageres.filter((t) => t.bloc === b.cle).map((t) => ({ ...t, x: t.x - b.x, z: t.z - b.z })),
       })),
       murs: etat.murs,
+      elements: etat.elements,
     };
   }
 
@@ -64,10 +68,68 @@
   const pas = () => (aimant ? 0.5 : 0.05);
   const caler = (v) => arrondi(Math.round(v / pas()) * pas());
   const emprise = (t) => (t.tournee ? { l: t.profondeur, p: t.largeur } : { l: t.largeur, p: t.profondeur });
-  const liste = (type) => etat[{ bloc: 'blocs', etagere: 'etageres', mur: 'murs' }[type]];
+  const liste = (type) => etat[{ bloc: 'blocs', etagere: 'etageres', mur: 'murs', element: 'elements' }[type]];
   const trouver = (s) => s && liste(s.type).find((o) => o.cle === s.cle);
   const blocEn = (x, z) => etat.blocs.find((b) => x >= b.x && x <= b.x + b.largeur && z >= b.z && z <= b.z + b.profondeur);
   const metresParPixel = () => vue.l / svg.clientWidth;
+  const longueurMur = (m) => Math.hypot(m.x2 - m.x1, m.z2 - m.z1);
+  const angleMur = (m) => (Math.atan2(m.z2 - m.z1, m.x2 - m.x1) * 180) / Math.PI;
+  const droit = (r) => Math.abs(((r % 90) + 90) % 90) < 0.01; // rotation multiple de 90°
+  // Emprise d'un objet (rectangle aligné) quand sa rotation est un multiple de 90°.
+  function empriseObjet(o) {
+    const couche = Math.round(((o.rotation % 180) + 180) % 180) === 90;
+    const l = couche ? o.profondeur : o.largeur, p = couche ? o.largeur : o.profondeur;
+    return { x: o.x - l / 2, z: o.z - p / 2, l, p };
+  }
+  // Mur le plus proche d'un point (pour coller portes et fenêtres).
+  function murProche(x, z, maxi = 1.2) {
+    let meilleur = null;
+    for (const m of etat.murs) {
+      const L = longueurMur(m); if (L < 0.01) continue;
+      const ux = (m.x2 - m.x1) / L, uz = (m.z2 - m.z1) / L;
+      const t = Math.max(0, Math.min(L, (x - m.x1) * ux + (z - m.z1) * uz));
+      const px = m.x1 + ux * t, pz = m.z1 + uz * t, d = Math.hypot(x - px, z - pz);
+      if (d <= maxi && (!meilleur || d < meilleur.d)) meilleur = { m, d, px, pz, t, L };
+    }
+    return meilleur;
+  }
+  function collerAuMur(o) {
+    if (!TYPES[o.type]?.mural) return;
+    const p = murProche(o.x, o.z);
+    if (!p) return;
+    const demi = Math.min(o.largeur / 2, p.L / 2);
+    const t = Math.max(demi, Math.min(p.L - demi, p.t));
+    const ux = (p.m.x2 - p.m.x1) / p.L, uz = (p.m.z2 - p.m.z1) / p.L;
+    o.x = arrondi(p.m.x1 + ux * t); o.z = arrondi(p.m.z1 + uz * t);
+    const a = angleMur(p.m);
+    // garde le sens d'ouverture choisi (rotation ± 180°)
+    o.rotation = Math.abs(((o.rotation - a) % 360 + 540) % 360 - 180) > 90 ? arrondi(((a + 180) % 360 + 360) % 360) : arrondi(((a % 360) + 360) % 360);
+    o.profondeur = Math.max(0.1, p.m.epaisseur || 0.2);
+  }
+  // Aimant : un bout de mur se colle au bout d'un autre mur proche.
+  function aimanterBout(x, z, sauf = null, xCale = x, zCale = z) {
+    const seuil = 12 * metresParPixel();
+    for (const m of etat.murs) {
+      if (m === sauf) continue;
+      for (const [bx, bz] of [[m.x1, m.z1], [m.x2, m.z2]]) if (Math.hypot(bx - x, bz - z) <= seuil) return { x: bx, z: bz, colle: true };
+    }
+    return { x: xCale, z: zCale, colle: false };
+  }
+
+  function poserObjet(type, p) {
+    const t = TYPES[type];
+    memoriser();
+    const o = { cle: nouvelleCle('o'), id: null, type, nom: type === 'texte' ? 'Texte' : '', x: caler(p.x), z: caler(p.z),
+      largeur: t.largeur, profondeur: t.profondeur, hauteur: t.hauteur, rotation: 0, couleur: t.couleur };
+    if (t.mural) {
+      collerAuMur(o);
+      if (!murProche(p.x, p.z)) message(`${t.nom} posée sans mur : rapprochez-la d'un mur pour qu'elle s'y colle.`);
+    }
+    etat.elements.push(o);
+    selection = { type: 'element', cle: o.cle };
+    choisirOutil('selection');
+    toutRedessiner();
+  }
 
   function pointMonde(ev) {
     const p = svg.createSVGPoint();
@@ -106,6 +168,78 @@
     for (let z = z0; z <= vue.z + vue.h; z += ecart) trait(vue.x, z, vue.x + vue.l, z, Math.round(z) % 5 === 0);
   }
 
+  function coteMur(m, contenu, mpp) {
+    const L = longueurMur(m); if (L < 0.3) return;
+    const mx = (m.x1 + m.x2) / 2, mz = (m.z1 + m.z2) / 2;
+    const nx = -(m.z2 - m.z1) / L, nz = (m.x2 - m.x1) / L, d = (m.epaisseur || 0.2) / 2 + 9 * mpp;
+    let a = angleMur(m); if (a > 90 || a < -90) a += 180;
+    const t = el('text', { x: mx + nx * d, y: mz + nz * d, class: 'cote', 'font-size': 11 * mpp, 'stroke-width': 3 * mpp,
+      transform: `rotate(${a} ${mx + nx * d} ${mz + nz * d})` }, contenu);
+    t.textContent = `${L.toFixed(2).replace('.', ',')} m`;
+  }
+
+  // Dessin d'un objet, dans son repère (centre, rotation).
+  function dessinerObjet(o, contenu, mpp) {
+    const L = o.largeur, P = o.profondeur, c = o.couleur;
+    const g = el('g', { 'data-type': 'element', 'data-cle': o.cle, class: 'objet',
+      transform: `translate(${o.x} ${o.z}) rotate(${o.rotation || 0})` }, contenu);
+    const r = (attrs) => el('rect', { x: -L / 2, y: -P / 2, width: L, height: P, ...attrs }, g);
+    const texte = (t, taille, couleur = c, y = 0, largeurMax = L) => {
+      taille = Math.min(taille, (largeurMax * 1.7) / Math.max(4, t.length)); // le texte tient dans l'objet
+      const n = el('text', { x: 0, y, class: 'lbl-objet', fill: couleur, 'font-size': taille }, g); n.textContent = t;
+    };
+    const fin = { 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' };
+    switch (o.type) {
+      case 'porte': case 'porte_entree': {
+        r({ fill: '#fbfcfd', stroke: 'none' }); // ouverture dans le mur
+        const battants = o.type === 'porte_entree' ? [[-L / 2, L / 2], [L / 2, -L / 2]] : [[-L / 2, L]];
+        for (const [x0, l] of battants) {
+          const fin_x = x0 + l, rayon = Math.abs(l);
+          el('line', { x1: x0, y1: P / 2, x2: x0, y2: P / 2 + rayon, stroke: c, ...fin }, g);
+          el('path', { d: `M ${x0} ${P / 2 + rayon} A ${rayon} ${rayon} 0 0 ${l > 0 ? 0 : 1} ${fin_x} ${P / 2}`, fill: 'none',
+            stroke: c, 'stroke-dasharray': '4 3', ...fin }, g);
+        }
+        if (o.type === 'porte_entree') texte(o.nom || 'ENTRÉE', Math.max(0.3, L / 6), c, P / 2 + L / 2 + 0.4, L * 2);
+        break;
+      }
+      case 'portail':
+        r({ fill: '#fbfcfd', stroke: 'none' });
+        el('line', { x1: -L / 2, y1: 0, x2: L / 2, y2: 0, stroke: c, 'stroke-dasharray': '8 4', 'stroke-width': 3, 'vector-effect': 'non-scaling-stroke' }, g);
+        texte(o.nom || 'Portail', Math.max(0.3, L / 10), c, P / 2 + 0.45, L * 1.5);
+        break;
+      case 'fenetre':
+        r({ fill: '#e0f2fe', stroke: c, ...fin });
+        el('line', { x1: -L / 2, y1: 0, x2: L / 2, y2: 0, stroke: c, ...fin }, g);
+        break;
+      case 'bureau': case 'sanitaires': case 'quai':
+        r({ fill: c, 'fill-opacity': o.type === 'quai' ? 0.3 : 0.16, stroke: c, 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke' });
+        texte(o.nom || TYPES[o.type].nom, Math.max(0.25, Math.min(0.7, Math.min(L, P) / 4)));
+        break;
+      case 'zone':
+        r({ fill: c, 'fill-opacity': 0.14, stroke: c, 'stroke-dasharray': '8 5', ...fin });
+        texte(o.nom || 'Zone', Math.max(0.25, Math.min(0.7, Math.min(L, P) / 4)));
+        break;
+      case 'poteau':
+        r({ fill: c, stroke: '#1c1917', ...fin });
+        break;
+      case 'escalier': {
+        r({ fill: '#f5f5f4', stroke: c, ...fin });
+        const n = Math.max(3, Math.round(P / 0.3));
+        for (let i = 1; i < n; i++) el('line', { x1: -L / 2, y1: -P / 2 + (P * i) / n, x2: L / 2, y2: -P / 2 + (P * i) / n, stroke: c, 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke' }, g);
+        break;
+      }
+      case 'extincteur':
+        el('circle', { cx: 0, cy: 0, r: Math.min(L, P) / 2, fill: c, stroke: '#7f1d1d', ...fin }, g);
+        break;
+      case 'texte':
+        r({ fill: 'transparent', stroke: 'none' });
+        texte(o.nom || 'Texte', P * 0.7, c, 0, L * 3);
+        break;
+      default:
+        r({ fill: c, 'fill-opacity': 0.3, stroke: c, ...fin });
+    }
+  }
+
   function dessiner() {
     svg.setAttribute('viewBox', `${vue.x} ${vue.z} ${vue.l} ${vue.h}`);
     dessinerGrille();
@@ -132,11 +266,17 @@
     }
     for (const m of etat.murs) {
       const g = el('g', { 'data-type': 'mur', 'data-cle': m.cle, class: 'objet' }, contenu);
-      el('line', { x1: m.x1, y1: m.z1, x2: m.x2, y2: m.z2, class: 'mur', 'stroke-width': m.epaisseur || 0.2,
+      const ep = m.epaisseur || 0.2;
+      el('line', { x1: m.x1, y1: m.z1, x2: m.x2, y2: m.z2, stroke: '#44403c', 'stroke-width': ep + 0.06,
+        'stroke-linecap': 'square' }, g);
+      el('line', { x1: m.x1, y1: m.z1, x2: m.x2, y2: m.z2, stroke: m.couleur || '#d6d3d1', 'stroke-width': Math.max(0.02, ep - 0.04),
         'stroke-linecap': 'square' }, g);
       // zone de clic plus large que le mur
       el('line', { x1: m.x1, y1: m.z1, x2: m.x2, y2: m.z2, stroke: 'transparent', 'stroke-width': 14 * mpp }, g);
     }
+
+    for (const o of etat.elements) dessinerObjet(o, contenu, mpp);
+    if (cotes) for (const m of etat.murs) coteMur(m, contenu, mpp);
 
     // Sélection et poignées
     const o = trouver(selection);
@@ -147,7 +287,23 @@
       if (selection.type === 'mur') {
         el('line', { x1: o.x1, y1: o.z1, x2: o.x2, y2: o.z2, class: 'contour-selection', 'stroke-width': 2,
           'vector-effect': 'non-scaling-stroke' }, contenu);
+        if (!cotes) coteMur(o, contenu, mpp);
         poignee(o.x1, o.z1, 'p1'); poignee(o.x2, o.z2, 'p2');
+      } else if (selection.type === 'element') {
+        const a = (o.rotation * Math.PI) / 180;
+        const g = el('g', { transform: `translate(${o.x} ${o.z}) rotate(${o.rotation})` }, contenu);
+        el('rect', { x: -o.largeur / 2, y: -o.profondeur / 2, width: o.largeur, height: o.profondeur, class: 'contour-selection',
+          'stroke-width': 2, 'vector-effect': 'non-scaling-stroke' }, g);
+        if (droit(o.rotation)) {
+          const r = empriseObjet(o);
+          poignee(r.x, r.z, 'nw'); poignee(r.x + r.l, r.z, 'ne'); poignee(r.x, r.z + r.p, 'sw'); poignee(r.x + r.l, r.z + r.p, 'se');
+        }
+        // poignée ronde pour tourner librement
+        const d = o.profondeur / 2 + 22 * mpp;
+        const hx = o.x + Math.sin(a) * d, hz = o.z - Math.cos(a) * d;
+        el('line', { x1: o.x, y1: o.z, x2: hx, y2: hz, class: 'contour-selection', 'stroke-width': 1, 'vector-effect': 'non-scaling-stroke' }, contenu);
+        el('circle', { cx: hx, cy: hz, r: 6 * mpp, class: 'poignee poignee-rotation', 'data-poignee': 'rotation',
+          'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }, contenu);
       } else {
         const r = rect(o);
         el('rect', { x: r.x, y: r.z, width: r.l, height: r.p, class: 'contour-selection', 'stroke-width': 2,
@@ -160,6 +316,7 @@
   }
 
   function rect(o) {
+    if (o.type && o.rotation !== undefined) return empriseObjet(o);
     if (o.largeur !== undefined && o.niveaux !== undefined) { const { l, p } = emprise(o); return { x: o.x, z: o.z, l, p }; }
     return { x: o.x, z: o.z, l: o.largeur, p: o.profondeur };
   }
@@ -168,6 +325,10 @@
     if (trace.type === 'mur') {
       el('line', { x1: trace.x1, y1: trace.z1, x2: trace.x2, y2: trace.z2, class: 'mur trace', 'stroke-width': 0.2,
         'stroke-linecap': 'square' }, contenu);
+    } else if (trace.type === 'piece') {
+      const x = Math.min(trace.x1, trace.x2), z = Math.min(trace.z1, trace.z2);
+      el('rect', { x, y: z, width: Math.abs(trace.x2 - trace.x1), height: Math.abs(trace.z2 - trace.z1), fill: 'none',
+        class: 'mur trace', 'stroke-width': 0.2 }, contenu);
     } else {
       const x = Math.min(trace.x1, trace.x2), z = Math.min(trace.z1, trace.z2);
       el('rect', { x, y: z, width: Math.abs(trace.x2 - trace.x1), height: Math.abs(trace.z2 - trace.z1),
@@ -185,7 +346,7 @@
     const zone = $('proprietes');
     const o = trouver(selection);
     if (!o) {
-      zone.innerHTML = $('aide-' + outil).innerHTML;
+      zone.innerHTML = $('aide-' + (outil.startsWith('objet:') ? 'objet' : outil)).innerHTML;
       return;
     }
     let html = '';
@@ -206,10 +367,22 @@
         <div class="grille-2">${champ('Hauteur (m)', 'hauteur', o.hauteur)}${champ('Niveaux', 'niveaux', o.niveaux, 'number', 'min="1" max="30" step="1"')}</div>
         <div class="grille-2">${champ('Position X (m)', 'x', o.x)}${champ('Position Z (m)', 'z', o.z)}</div>
         <button class="btn" data-action="tourner" style="width:100%">↻ Tourner de 90°</button>`;
+    } else if (selection.type === 'element') {
+      const t = TYPES[o.type];
+      html = `<h3>${t.nom}</h3>
+        ${champ(o.type === 'texte' ? 'Texte affiché' : 'Nom affiché', 'nom', o.nom, 'text', `maxlength="60" placeholder="${t.nom}"`)}
+        <div class="grille-2">${champ('Largeur (m)', 'largeur', o.largeur)}${champ(o.type === 'texte' ? 'Taille du texte (m)' : 'Profondeur (m)', 'profondeur', o.profondeur)}</div>
+        <div class="grille-2">${champ('Hauteur (m)', 'hauteur', o.hauteur)}${champ('Rotation (°)', 'rotation', o.rotation, 'number', 'step="15"')}</div>
+        <div class="grille-2">${champ('Couleur', 'couleur', o.couleur, 'color')}<div></div></div>
+        <div class="grille-2">${champ('Centre X (m)', 'x', o.x)}${champ('Centre Z (m)', 'z', o.z)}</div>
+        ${t.mural ? '<p class="aide">Se colle au mur le plus proche et y ouvre un passage dans la vue 3D.</p>' : ''}
+        <button class="btn" data-action="tourner" style="width:100%">↻ Tourner de 90°</button>`;
     } else {
-      const longueur = Math.hypot(o.x2 - o.x1, o.z2 - o.z1);
-      html = `<h3>Mur</h3><p class="muted petit">Longueur : <b>${longueur.toFixed(2).replace('.', ',')} m</b></p>
+      const longueur = longueurMur(o);
+      html = `<h3>Mur</h3>
+        <div class="grille-2">${champ('Longueur (m)', 'longueur', arrondi(longueur))}${champ('Angle (°)', 'angle', arrondi(angleMur(o)), 'number', 'step="15"')}</div>
         <div class="grille-2">${champ('Épaisseur (m)', 'epaisseur', o.epaisseur)}${champ('Hauteur (m)', 'hauteur', o.hauteur)}</div>
+        <div class="grille-2">${champ('Couleur', 'couleur', o.couleur || '#d6d3d1', 'color')}<div></div></div>
         <div class="grille-2">${champ('Début X', 'x1', o.x1)}${champ('Début Z', 'z1', o.z1)}</div>
         <div class="grille-2">${champ('Fin X', 'x2', o.x2)}${champ('Fin Z', 'z2', o.z2)}</div>`;
     }
@@ -232,11 +405,21 @@
       if (prop === 'niveaux') v = Math.max(1, Math.min(30, Math.round(v)));
       v = arrondi(v);
     }
+    if (selection.type === 'mur' && (prop === 'longueur' || prop === 'angle')) {
+      // Le début du mur reste fixe ; la fin bouge.
+      const L = prop === 'longueur' ? Math.max(0.1, v) : longueurMur(o);
+      const a = ((prop === 'angle' ? v : angleMur(o)) * Math.PI) / 180;
+      o.x2 = arrondi(o.x1 + Math.cos(a) * L); o.z2 = arrondi(o.z1 + Math.sin(a) * L);
+      toutRedessiner();
+      return;
+    }
+    if (prop === 'rotation') v = arrondi(((v % 360) + 360) % 360);
     if (selection.type === 'bloc' && (prop === 'x' || prop === 'z')) {
       const d = v - o[prop];
       for (const t of etat.etageres) if (t.bloc === o.cle) t[prop] = arrondi(t[prop] + d);
     }
     o[prop] = v;
+    if (selection.type === 'element' && ['x', 'z', 'largeur', 'rotation'].includes(prop)) collerAuMur(o);
     toutRedessiner();
   });
 
@@ -263,6 +446,9 @@
       if (o.articles && !confirm(`${o.articles} article(s) sont rangés sur l'étagère ${o.code}. Ils deviendront « non rangés ». Supprimer ?`)) return;
       memoriser();
       etat.etageres = etat.etageres.filter((t) => t !== o);
+    } else if (selection.type === 'element') {
+      memoriser();
+      etat.elements = etat.elements.filter((e) => e !== o);
     } else {
       memoriser();
       etat.murs = etat.murs.filter((m) => m !== o);
@@ -275,6 +461,13 @@
     const o = trouver(selection);
     if (!o) return;
     memoriser();
+    if (selection.type === 'element') {
+      const e = { ...o, cle: nouvelleCle('o'), id: null, x: arrondi(o.x + 1), z: arrondi(o.z + 1) };
+      if (TYPES[o.type].mural) { const a = (o.rotation * Math.PI) / 180; e.x = arrondi(o.x + Math.cos(a) * (o.largeur + 0.5)); e.z = arrondi(o.z + Math.sin(a) * (o.largeur + 0.5)); collerAuMur(e); }
+      etat.elements.push(e); selection = { type: 'element', cle: e.cle };
+      toutRedessiner();
+      return;
+    }
     if (selection.type === 'mur') {
       const d = 1;
       const m = { ...o, cle: nouvelleCle('m'), id: null, x1: o.x1 + d, z1: o.z1 + d, x2: o.x2 + d, z2: o.z2 + d };
@@ -301,6 +494,12 @@
 
   function tourner() {
     const o = trouver(selection);
+    if (o && selection.type === 'element') {
+      memoriser();
+      o.rotation = arrondi((o.rotation + (TYPES[o.type].mural ? 180 : 90)) % 360); // une porte : change le sens d'ouverture
+      toutRedessiner();
+      return;
+    }
     if (!o || selection.type !== 'etagere') return;
     memoriser();
     const avant = emprise(o);
@@ -312,6 +511,7 @@
   }
 
   function deplacer(o, type, dx, dz) {
+    if (type === 'element') { o.x = arrondi(o.x + dx); o.z = arrondi(o.z + dz); return; }
     if (type === 'mur') { o.x1 = arrondi(o.x1 + dx); o.x2 = arrondi(o.x2 + dx); o.z1 = arrondi(o.z1 + dz); o.z2 = arrondi(o.z2 + dz); return; }
     o.x = arrondi(o.x + dx); o.z = arrondi(o.z + dz);
     if (type === 'bloc') for (const t of etat.etageres) if (t.bloc === o.cle) { t.x = arrondi(t.x + dx); t.z = arrondi(t.z + dz); }
@@ -345,7 +545,10 @@
     const cible = ev.target.closest('.objet');
 
     if (outil === 'selection') {
-      if (poignee && selection) {
+      if (poignee === 'rotation' && selection) {
+        memoriser();
+        glisse = { mode: 'rotation', objet: trouver(selection) };
+      } else if (poignee && selection) {
         memoriser();
         glisse = { mode: 'poignee', poignee, objet: trouver(selection), type: selection.type };
       } else if (cible) {
@@ -363,7 +566,9 @@
       dessiner();
       return;
     }
-    const x = caler(p.x), z = caler(p.z);
+    if (outil.startsWith('objet:')) { poserObjet(outil.slice(6), p); return; }
+    let x = caler(p.x), z = caler(p.z);
+    if (outil === 'mur') ({ x, z } = aimanterBout(p.x, p.z, null, x, z));
     trace = { type: outil, x1: x, z1: z, x2: x, z2: z };
     svg.setPointerCapture(ev.pointerId);
     dessiner();
@@ -397,8 +602,19 @@
       }
       return;
     }
+    if (glisse?.mode === 'rotation') {
+      const o = glisse.objet;
+      let a = (Math.atan2(p.x - o.x, -(p.z - o.z)) * 180) / Math.PI;
+      if (!ev.shiftKey) a = Math.round(a / 15) * 15; // par pas de 15° ; Maj = libre
+      o.rotation = arrondi(((a % 360) + 360) % 360);
+      dessiner();
+      $('mesure').textContent = `Rotation : ${o.rotation}°`;
+      return;
+    }
     if (glisse?.mode === 'poignee') {
-      redimensionner(glisse, caler(p.x), caler(p.z), ev.shiftKey);
+      let x = caler(p.x), z = caler(p.z);
+      if (glisse.type === 'mur') ({ x, z } = aimanterBout(p.x, p.z, glisse.objet, x, z));
+      redimensionner(glisse, x, z, ev.shiftKey);
       dessiner();
       afficherMesure(glisse.objet, glisse.type);
       return;
@@ -407,6 +623,10 @@
       let x = caler(p.x), z = caler(p.z);
       if (trace.type === 'mur' && !ev.shiftKey) { // murs droits par défaut ; Maj = n'importe quel angle
         if (Math.abs(x - trace.x1) >= Math.abs(z - trace.z1)) z = trace.z1; else x = trace.x1;
+      }
+      if (trace.type === 'mur') {
+        const b = aimanterBout(p.x, p.z, null, x, z);
+        if (b.colle) ({ x, z } = b);
       }
       trace.x2 = x; trace.z2 = z;
       dessiner();
@@ -418,6 +638,7 @@
 
   svg.addEventListener('pointerup', () => {
     if (glisse?.mode === 'deplacer' && glisse.type === 'etagere' && !memoriserAuPremierMouvement) rattacher(glisse.objet);
+    if (glisse?.mode === 'deplacer' && glisse.type === 'element' && !memoriserAuPremierMouvement) collerAuMur(glisse.objet);
     if (glisse && glisse.mode !== 'vue') toutRedessiner();
     glisse = null;
     memoriserAuPremierMouvement = false;
@@ -443,6 +664,7 @@
     const xs = [], zs = [];
     for (const b of etat.blocs) { xs.push(b.x, b.x + b.largeur); zs.push(b.z, b.z + b.profondeur); }
     for (const m of etat.murs) { xs.push(m.x1, m.x2); zs.push(m.z1, m.z2); }
+    for (const o of etat.elements) { xs.push(o.x - o.largeur / 2, o.x + o.largeur / 2); zs.push(o.z - o.profondeur / 2, o.z + o.profondeur / 2); }
     const ratio = svg.clientHeight / svg.clientWidth || 0.6;
     if (!xs.length) { vue = { x: -2, z: -2, l: 30, h: 30 * ratio }; dessiner(); return; }
     const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
@@ -461,12 +683,16 @@
     // Coin opposé fixe.
     const fixeX = g.poignee.includes('w') ? r.x + r.l : r.x;
     const fixeZ = g.poignee.includes('n') ? r.z + r.p : r.z;
-    const mini = g.type === 'bloc' ? 0.5 : 0.2;
+    const mini = g.type === 'bloc' ? 0.5 : g.type === 'element' ? 0.1 : 0.2;
     let l = Math.max(mini, Math.abs(x - fixeX)), p = Math.max(mini, Math.abs(z - fixeZ));
     if (garderRapport) { const k = Math.max(l / r.l, p / r.p); l = arrondi(r.l * k); p = arrondi(r.p * k); }
     const nx = g.poignee.includes('w') ? fixeX - l : fixeX;
     const nz = g.poignee.includes('n') ? fixeZ - p : fixeZ;
-    if (g.type === 'bloc') {
+    if (g.type === 'element') {
+      const couche = Math.round(((o.rotation % 180) + 180) % 180) === 90;
+      o.x = arrondi(nx + l / 2); o.z = arrondi(nz + p / 2);
+      if (couche) { o.largeur = arrondi(p); o.profondeur = arrondi(l); } else { o.largeur = arrondi(l); o.profondeur = arrondi(p); }
+    } else if (g.type === 'bloc') {
       o.x = arrondi(nx); o.z = arrondi(nz); o.largeur = arrondi(l); o.profondeur = arrondi(p);
     } else {
       o.x = arrondi(nx); o.z = arrondi(nz);
@@ -495,6 +721,20 @@
       selection = { type: 'mur', cle: m.cle };
       toutRedessiner();
       return; // l'outil Mur reste actif pour enchaîner les murs
+    }
+    if (t.type === 'piece') {
+      if (l < 0.5 || p < 0.5) { l = 4; p = 3; } // simple clic : pièce de 4 × 3 m
+      memoriser();
+      const coins = [[x, z], [x + l, z], [x + l, z + p], [x, z + p]];
+      for (let i = 0; i < 4; i++) {
+        const [a, b] = [coins[i], coins[(i + 1) % 4]];
+        etat.murs.push({ cle: nouvelleCle('m'), id: null, x1: a[0], z1: a[1], x2: b[0], z2: b[1], epaisseur: 0.15, hauteur: 2.8, couleur: '#e7e5e4' });
+      }
+      selection = null;
+      choisirOutil('selection');
+      toutRedessiner();
+      message('Pièce ajoutée : ajoutez une porte avec « Objets › Porte ».');
+      return;
     }
     if (t.type === 'bloc') {
       if (l < 0.5 || p < 0.5) { l = 8; p = 6; } // simple clic : bloc de 8 × 6 m
@@ -527,7 +767,7 @@
     if ((ev.ctrlKey || ev.metaKey) && touche === 'd') { ev.preventDefault(); dupliquer(); return; }
     if (touche === 'delete' || touche === 'backspace') { ev.preventDefault(); supprimer(); return; }
     if (touche === 'escape') { trace = null; selection = null; choisirOutil('selection'); toutRedessiner(); return; }
-    const raccourcis = { v: 'selection', m: 'mur', b: 'bloc', e: 'etagere' };
+    const raccourcis = { v: 'selection', m: 'mur', p: 'piece', b: 'bloc', e: 'etagere' };
     if (raccourcis[touche] && !ev.ctrlKey) { choisirOutil(raccourcis[touche]); return; }
     if (touche === 'r') { tourner(); return; }
     const fleches = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
@@ -545,11 +785,18 @@
   function choisirOutil(nom) {
     outil = nom;
     document.querySelectorAll('[data-outil]').forEach((b) => b.classList.toggle('actif', b.dataset.outil === nom));
+    $('btn-objets').classList.toggle('actif', nom.startsWith('objet:'));
+    $('menu-objets').hidden = true;
+    if (nom.startsWith('objet:')) message(`Cliquez sur le plan pour poser : ${TYPES[nom.slice(6)].nom}.`);
     svg.dataset.outil = nom;
     if (!trouver(selection)) panneau();
   }
   document.querySelectorAll('[data-outil]').forEach((b) => b.addEventListener('click', () => choisirOutil(b.dataset.outil)));
   $('btn-annuler').onclick = annuler;
+  $('btn-objets').onclick = (ev) => { ev.stopPropagation(); $('menu-objets').hidden = !$('menu-objets').hidden; };
+  $('menu-objets').addEventListener('click', (ev) => { const b = ev.target.closest('[data-objet]'); if (b) choisirOutil(`objet:${b.dataset.objet}`); });
+  document.addEventListener('click', (ev) => { if (!ev.target.closest('#menu-objets, #btn-objets')) $('menu-objets').hidden = true; });
+  $('btn-cotes').onclick = () => { cotes = !cotes; $('btn-cotes').classList.toggle('actif', cotes); dessiner(); };
   $('btn-zoom-plus').onclick = () => zoomer(1 / 1.3);
   $('btn-zoom-moins').onclick = () => zoomer(1.3);
   $('btn-ajuster').onclick = ajuster;
@@ -608,7 +855,8 @@
     const donnees = {
       blocs: etat.blocs.map(({ cle, id, code, nom, couleur, x, z, largeur, profondeur }) => ({ cle, id, code, nom, couleur, x, z, largeur, profondeur })),
       etageres: etat.etageres.map(({ id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee }) => ({ id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee })),
-      murs: etat.murs.map(({ id, x1, z1, x2, z2, epaisseur, hauteur }) => ({ id, x1, z1, x2, z2, epaisseur, hauteur })),
+      murs: etat.murs.map(({ id, x1, z1, x2, z2, epaisseur, hauteur, couleur }) => ({ id, x1, z1, x2, z2, epaisseur, hauteur, couleur })),
+      elements: etat.elements.map(({ type, nom, x, z, largeur, profondeur, hauteur, rotation, couleur }) => ({ type, nom, x, z, largeur, profondeur, hauteur, rotation, couleur })),
     };
     try {
       const rep = await fetch(CFG.apiEnregistrer, {

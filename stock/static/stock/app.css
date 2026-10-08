@@ -393,3 +393,12 @@ input[type=checkbox], input[type=radio] { width: 18px; height: 18px; accent-colo
 .aide-liste li { margin-bottom: 8px; }
 kbd { background: var(--surface-2); border: 1px solid var(--bord); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font: 600 12px Inter, sans-serif; color: var(--texte); }
 #etat-sauvegarde.non-enregistre { color: #b45f06; font-weight: 600; }
+.menu-objets-zone { position: relative; }
+.menu-objets { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; padding: 6px; width: 260px; display: grid; gap: 2px; }
+.menu-objets[hidden] { display: none; }
+.menu-objets button { justify-content: flex-start !important; width: 100%; font-weight: 500 !important; }
+.menu-objets .pastille { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+#plan .lbl-objet { font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+#plan .cote { fill: #57534e; font-weight: 600; text-anchor: middle; dominant-baseline: central; pointer-events: none;
+  paint-order: stroke; stroke: #fbfcfd; }
+#plan .poignee-rotation { cursor: grab; }

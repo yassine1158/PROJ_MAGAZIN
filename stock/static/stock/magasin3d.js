@@ -40,6 +40,27 @@ function aleatoire(graine) {
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
 }
 
+const MURAUX = { porte: 0, porte_entree: 0, portail: 0, fenetre: 1.0 }; // type → hauteur du bas de l'ouverture
+
+// Ouvertures d'un mur : portes et fenêtres posées dessus (le long du mur, à moins de 40 cm de son axe).
+export function ouvertures(m, elements) {
+  const dx = m.x2 - m.x1, dz = m.z2 - m.z1, longueur = Math.hypot(dx, dz);
+  if (longueur < 0.01) return [];
+  const ux = dx / longueur, uz = dz / longueur;
+  const liste = [];
+  for (const e of elements) {
+    if (!(e.type in MURAUX)) continue;
+    const a = (e.rotation || 0) * Math.PI / 180;
+    if (Math.abs(Math.cos(a) * uz - Math.sin(a) * ux) > 0.3) continue; // pas dans le sens du mur
+    const t = (e.x - m.x1) * ux + (e.z - m.z1) * uz;
+    const distance = Math.abs((e.x - m.x1) * uz - (e.z - m.z1) * ux);
+    if (distance > (m.epaisseur || 0.2) / 2 + 0.4 || t < -e.largeur / 2 || t > longueur + e.largeur / 2) continue;
+    const bas = MURAUX[e.type];
+    liste.push({ t0: Math.max(0, t - e.largeur / 2), t1: Math.min(longueur, t + e.largeur / 2), bas, haut: bas + (e.hauteur || 2) });
+  }
+  return liste.sort((p, q) => p.t0 - q.t0);
+}
+
 export class Magasin3D {
   constructor(conteneur) {
     this.conteneur = conteneur;
@@ -97,7 +118,8 @@ export class Magasin3D {
     this._vider();
     const blocs = plan.blocs || [];
     const murs = plan.murs || [];
-    if (!blocs.length && !murs.length) return false;
+    const elements = plan.elements || [];
+    if (!blocs.length && !murs.length && !elements.length) return false;
     let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, maxH = 2;
     for (const b of blocs) {
       minX = Math.min(minX, b.x); minZ = Math.min(minZ, b.z);
@@ -107,6 +129,11 @@ export class Magasin3D {
     for (const m of murs) {
       minX = Math.min(minX, m.x1, m.x2); maxX = Math.max(maxX, m.x1, m.x2);
       minZ = Math.min(minZ, m.z1, m.z2); maxZ = Math.max(maxZ, m.z1, m.z2);
+    }
+    for (const e of elements) {
+      const r = Math.max(e.largeur, e.profondeur) / 2;
+      minX = Math.min(minX, e.x - r); maxX = Math.max(maxX, e.x + r);
+      minZ = Math.min(minZ, e.z - r); maxZ = Math.max(maxZ, e.z + r);
     }
     this.limites = { minX, minZ, maxX, maxZ, maxH };
     this.centre = new THREE.Vector3((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
@@ -138,24 +165,107 @@ export class Magasin3D {
     cam.updateProjectionMatrix();
 
     for (const b of blocs) this._ajouterBloc(b, maxH);
-    for (const m of murs) this._ajouterMur(m);
+    for (const m of murs) this._ajouterMur(m, ouvertures(m, elements));
+    for (const e of elements) this._ajouterElement(e);
     if (!garderVue || !dejaCharge) this.vueEnsemble(false);
     return true;
   }
 
-  _ajouterMur(m) {
+  // Un mur est découpé en morceaux pour laisser les ouvertures (portes, fenêtres).
+  _ajouterMur(m, trous = []) {
     const dx = m.x2 - m.x1, dz = m.z2 - m.z1;
     const longueur = Math.hypot(dx, dz);
     if (longueur < 0.01) return;
-    const h = m.hauteur || 3, ep = m.epaisseur || 0.2;
-    const mur = new THREE.Mesh(
-      new THREE.BoxGeometry(longueur + ep, h, ep),
-      new THREE.MeshStandardMaterial({ color: sombre() ? 0x64748b : 0xd6d3d1, roughness: 0.9, transparent: true, opacity: 0.92 }),
-    );
-    mur.position.set((m.x1 + m.x2) / 2, h / 2, (m.z1 + m.z2) / 2);
-    mur.rotation.y = -Math.atan2(dz, dx);
-    mur.castShadow = mur.receiveShadow = true;
-    this.contenu.add(mur);
+    const H = m.hauteur || 3, ep = m.epaisseur || 0.2;
+    const mat = new THREE.MeshStandardMaterial({ color: m.couleur || (sombre() ? 0x64748b : 0xd6d3d1), roughness: 0.9 });
+    const angle = -Math.atan2(dz, dx);
+    const ux = dx / longueur, uz = dz / longueur;
+    const morceau = (t0, t1, y0, y1) => { // de t0 à t1 le long du mur, de y0 à y1 en hauteur
+      if (t1 - t0 < 0.01 || y1 - y0 < 0.01) return;
+      const bout0 = t0 <= 0.001 ? ep / 2 : 0, bout1 = t1 >= longueur - 0.001 ? ep / 2 : 0; // angles bien fermés
+      const l = t1 - t0 + bout0 + bout1, milieu = (t0 - bout0 + t1 + bout1) / 2;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(l, y1 - y0, ep), mat);
+      mesh.position.set(m.x1 + ux * milieu, (y0 + y1) / 2, m.z1 + uz * milieu);
+      mesh.rotation.y = angle;
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.contenu.add(mesh);
+    };
+    let t = 0;
+    for (const o of trous) {
+      morceau(t, o.t0, 0, H);
+      morceau(o.t0, o.t1, 0, Math.min(o.bas, H));       // allège sous une fenêtre
+      morceau(o.t0, o.t1, Math.min(o.haut, H), H);       // linteau au-dessus
+      t = Math.max(t, o.t1);
+    }
+    morceau(t, longueur, 0, H);
+  }
+
+  _ajouterElement(e) {
+    const g = new THREE.Group();
+    g.position.set(e.x, 0, e.z);
+    g.rotation.y = -(e.rotation || 0) * Math.PI / 180;
+    const L = e.largeur, P = e.profondeur, H = e.hauteur || 0;
+    const mat = (couleur, extra = {}) => new THREE.MeshStandardMaterial({ color: couleur, roughness: 0.8, ...extra });
+    const boite = (l, h, p, y, matiere, x = 0, z = 0) => {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(l, h, p), matiere);
+      b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; g.add(b); return b;
+    };
+    const sol = (couleur, opacite) => {
+      const z = new THREE.Mesh(new THREE.PlaneGeometry(L, P), mat(couleur, { transparent: true, opacity: opacite }));
+      z.rotation.x = -Math.PI / 2; z.position.y = 0.015; z.receiveShadow = true; g.add(z);
+    };
+    const titre = (texte, y, couleur = '#16202a') => {
+      if (!texte) return;
+      const t = etiquette(texte, { taille: 54, fond: couleur }); t.position.set(0, y, 0); g.add(t);
+    };
+    switch (e.type) {
+      case 'porte':
+        boite(L - 0.06, H, 0.05, H / 2, mat(e.couleur)); break;
+      case 'porte_entree':
+        boite(L / 2 - 0.04, H, 0.05, H / 2, mat(e.couleur, { transparent: true, opacity: 0.55 }), -L / 4);
+        boite(L / 2 - 0.04, H, 0.05, H / 2, mat(e.couleur, { transparent: true, opacity: 0.55 }), L / 4);
+        titre(e.nom || 'ENTRÉE', H + 0.6, e.couleur); break;
+      case 'portail':
+        boite(L, H, 0.06, H / 2, mat(e.couleur, { metalness: 0.5, transparent: true, opacity: 0.85 }));
+        titre(e.nom, H + 0.6, e.couleur); break;
+      case 'fenetre':
+        boite(L, H, 0.04, 1 + H / 2, mat(e.couleur, { transparent: true, opacity: 0.35, metalness: 0.3 })); break;
+      case 'bureau':
+      case 'sanitaires': {
+        sol(e.couleur, 0.35);
+        const verre = mat(e.couleur, { transparent: true, opacity: e.type === 'bureau' ? 0.28 : 0.6 });
+        boite(L, H, 0.08, H / 2, verre, 0, -P / 2); boite(L, H, 0.08, H / 2, verre, 0, P / 2);
+        boite(0.08, H, P, H / 2, verre, -L / 2); boite(0.08, H, P, H / 2, verre, L / 2);
+        if (e.type === 'bureau' && L > 1.6 && P > 1.2) { // table et chaise
+          boite(Math.min(1.6, L * 0.5), 0.05, 0.8, 0.75, mat('#8b5e34'), 0, -P / 4);
+          boite(0.45, 0.45, 0.45, 0.25, mat('#334155'), 0, -P / 4 + 0.75);
+        }
+        titre(e.nom || (e.type === 'bureau' ? 'Bureau' : 'WC'), H + 0.5, e.couleur); break;
+      }
+      case 'poteau':
+        boite(L, H, P, H / 2, mat(e.couleur)); break;
+      case 'quai':
+        boite(L, H, P, H / 2, mat(e.couleur)); titre(e.nom, H + 0.6, e.couleur); break;
+      case 'zone':
+        sol(e.couleur, 0.35); titre(e.nom, 0.6, e.couleur); break;
+      case 'escalier': {
+        const n = Math.max(3, Math.round(H / 0.18));
+        for (let i = 0; i < n; i++) {
+          const h = (H * (i + 1)) / n;
+          boite(L, h, P / n, h / 2, mat(e.couleur), 0, -P / 2 + (P / n) * (i + 0.5));
+        }
+        break;
+      }
+      case 'extincteur': {
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(Math.min(L, P) / 3, Math.min(L, P) / 3, H, 16), mat(e.couleur));
+        c.position.y = H / 2; c.castShadow = true; g.add(c); break;
+      }
+      case 'texte':
+        titre(e.nom || 'Texte', 2.2, e.couleur); break;
+      default:
+        boite(L, Math.max(H, 0.1), P, Math.max(H, 0.1) / 2, mat(e.couleur));
+    }
+    this.contenu.add(g);
   }
 
   _ajouterBloc(b, maxH) {

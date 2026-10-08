@@ -29,6 +29,9 @@ et la caméra s'y déplace.
 - **Plan du magasin** : blocs (zones) et étagères, avec vue de dessus ; « Ajouter une rangée » crée plusieurs
   étagères d'un coup. **Dessiner le plan** ouvre l'éditeur graphique : murs, blocs et étagères à la souris
   (glisser pour déplacer, coins pour agrandir, grille de 50 cm, annuler, dupliquer, tourner), avec un onglet Vue 3D.
+  Outil **Pièce** (4 murs d'un coup) ; murs réglables (longueur, angle, épaisseur, hauteur, couleur, cotes affichées,
+  bouts aimantés). Menu **Objets** : porte, porte d'entrée, portail, fenêtre (collés au mur, passage ouvert dans la 3D),
+  bureau, sanitaires, poteau, quai de chargement, zone au sol, escalier, extincteur, texte.
 - **Chantiers, engins…** : listes proposées dans les entrées et sorties (chantiers, engins, fournisseurs, catégories).
 - **Utilisateurs** : un compte par personne ; *Magasinier* (entrées, sorties, articles) ou *Responsable* (tout).
 - **Ma société** : nom, logo, couleur, adresse, devise, texte de signature des bons.

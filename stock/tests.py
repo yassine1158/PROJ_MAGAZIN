@@ -479,3 +479,26 @@ class EditeurPlanTests(Base):
         self.client.force_login(magasinier)
         self.assertEqual(self.envoyer({'blocs': [], 'etageres': [], 'murs': []}).status_code, 403)
         self.assertTrue(Bloc.objects.exists())
+
+    def test_objets_et_couleur_des_murs(self):
+        rep = self.envoyer({
+            'blocs': [], 'etageres': [],
+            'murs': [{'x1': 0, 'z1': 0, 'x2': 20, 'z2': 0, 'couleur': '#AABBCC'}],
+            'elements': [
+                {'type': 'porte_entree', 'nom': 'Entrée', 'x': 10, 'z': 0, 'largeur': 2, 'profondeur': 0.2, 'hauteur': 2.4,
+                 'rotation': 0, 'couleur': '#16a34a'},
+                {'type': 'bureau', 'x': 4, 'z': 4, 'largeur': 4, 'profondeur': 3, 'hauteur': 2.6, 'rotation': 450},
+            ]})
+        self.assertEqual(rep.status_code, 200, rep.content)
+        data = rep.json()
+        self.assertEqual(data['murs'][0]['couleur'], '#aabbcc')
+        bureau = next(e for e in data['elements'] if e['type'] == 'bureau')
+        self.assertEqual(bureau['rotation'], 90.0)           # 450° → 90°
+        self.assertEqual(bureau['couleur'], '#f59e0b')       # couleur par défaut du type
+        self.assertFalse(Bloc.objects.exists())              # plan vide de blocs : tout a été remplacé
+
+    def test_objet_inconnu_refuse(self):
+        rep = self.envoyer({'blocs': [], 'etageres': [], 'murs': [], 'elements': [{'type': 'piscine', 'x': 0, 'z': 0}]})
+        self.assertEqual(rep.status_code, 400)
+        self.assertIn('inconnu', rep.json()['erreurs'][0])
+        self.assertTrue(Bloc.objects.exists())

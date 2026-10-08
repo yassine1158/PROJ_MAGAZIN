@@ -16,14 +16,24 @@
     <div class="outils-dessin">
       <button data-outil="selection" title="Sélectionner et déplacer (V)">{% icone 'curseur' %}<span>Sélection</span></button>
       <button data-outil="mur" title="Tracer un mur (M)">{% icone 'mur' %}<span>Mur</span></button>
+      <button data-outil="piece" title="Pièce : 4 murs d'un coup (P)">{% icone 'piece' %}<span>Pièce</span></button>
       <button data-outil="bloc" title="Dessiner un bloc (B)">{% icone 'plan' %}<span>Bloc</span></button>
       <button data-outil="etagere" title="Dessiner une étagère dans un bloc (E)">{% icone 'etagere' %}<span>Étagère</span></button>
+      <span class="menu-objets-zone">
+        <button id="btn-objets" title="Portes, fenêtres, bureau, poteau…">{% icone 'objets' %}<span>Objets ▾</span></button>
+        <div id="menu-objets" class="menu-objets carte" hidden>
+          {% for cle, t in types_elements.items %}
+            <button data-objet="{{ cle }}"><span class="pastille" style="background:{{ t.couleur }}"></span>{{ t.nom }}</button>
+          {% endfor %}
+        </div>
+      </span>
       <span class="sep"></span>
       <button id="btn-annuler" title="Annuler (Ctrl+Z)" disabled>{% icone 'historique' %}<span>Annuler</span></button>
       <button id="btn-zoom-moins" title="Dézoomer">−</button>
       <button id="btn-zoom-plus" title="Zoomer">+</button>
       <button id="btn-ajuster" title="Tout voir">{% icone 'cadre' %}<span>Tout voir</span></button>
       <button id="btn-aimant" class="actif" title="Caler sur la grille de 50 cm">{% icone 'grille' %}<span>Grille 50 cm</span></button>
+      <button id="btn-cotes" class="actif" title="Afficher la longueur des murs">{% icone 'cote' %}<span>Cotes</span></button>
     </div>
     <nav class="onglets" style="margin:0">
       <a href="#" data-onglet="2d" class="actif" onclick="return false">Plan 2D</a>
@@ -51,12 +61,22 @@
     <li><b>Cliquez</b> sur un mur, un bloc ou une étagère pour le modifier.</li>
     <li><b>Glissez</b> pour le déplacer ; tirez un <b>coin</b> pour l'agrandir.</li>
     <li><b>Glissez dans le vide</b> ou clic droit pour déplacer la vue, <b>molette</b> pour zoomer.</li>
+    <li>Murs : tirez un bout pour le déplacer ; longueur, angle et couleur se changent dans ce panneau.</li>
+    <li><b>Objets ▾</b> : portes, porte d'entrée, fenêtres, bureau, poteau, quai, zone au sol, texte…</li>
     <li>Touches : <kbd>Suppr</kbd> supprimer, <kbd>R</kbd> tourner, <kbd>Ctrl</kbd>+<kbd>D</kbd> dupliquer, <kbd>Ctrl</kbd>+<kbd>Z</kbd> annuler, flèches pour ajuster.</li>
     <li>Rien n'est gardé tant que vous n'avez pas cliqué sur <b>Enregistrer</b>.</li></ul></template>
   <template id="aide-mur"><h3>Tracer un mur</h3><ul class="aide-liste">
     <li>Cliquez au début du mur, <b>glissez</b> jusqu'à la fin, relâchez.</li>
     <li>Les murs sont droits ; maintenez <kbd>Maj</kbd> pour un mur en biais.</li>
     <li>Enchaînez plusieurs murs, puis <kbd>Échap</kbd> pour terminer.</li></ul></template>
+  <template id="aide-piece"><h3>Ajouter une pièce</h3><ul class="aide-liste">
+    <li>Pour un bureau, un local, des sanitaires… : <b>glissez</b> pour dessiner la pièce, ses 4 murs sont créés.</li>
+    <li>Ou cliquez une fois pour une pièce de 4 × 3 m.</li>
+    <li>Ajoutez ensuite une porte avec <b>Objets › Porte</b>.</li></ul></template>
+  <template id="aide-objet"><h3>Poser un objet</h3><ul class="aide-liste">
+    <li><b>Cliquez</b> sur le plan à l'endroit voulu.</li>
+    <li>Portes et fenêtres : cliquez <b>sur un mur</b>, elles s'y collent et y ouvrent un passage dans la 3D.</li>
+    <li>Ensuite : glissez pour déplacer, tirez les coins pour la taille, rond au-dessus pour tourner.</li></ul></template>
   <template id="aide-bloc"><h3>Dessiner un bloc</h3><ul class="aide-liste">
     <li>Un bloc est une zone du magasin (ex. : Pièces moteur, Pneus, Ciment).</li>
     <li><b>Glissez</b> pour dessiner le rectangle, ou cliquez une fois pour un bloc de 8 × 6 m.</li></ul></template>
@@ -66,6 +86,7 @@
     <li>Ensuite : <kbd>Ctrl</kbd>+<kbd>D</kbd> pour en ajouter une identique à côté.</li></ul></template>
 </main>
 {{ plan|json_script:"plan-initial" }}
+{{ types_elements|json_script:"types-elements" }}
 {% endblock %}
 {% block scripts %}
 <script type="importmap">
@@ -78,6 +99,7 @@
   window.EDITEUR = {
     apiEnregistrer: "{% url 'stock:api_plan_enregistrer' %}",
     module3d: "{% static 'stock/magasin3d.js' %}",
+    types: JSON.parse(document.getElementById('types-elements').textContent),
     csrf: "{{ csrf_token }}",
   };
 </script>
