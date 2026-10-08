@@ -86,6 +86,13 @@ def plan(request):
 
 
 @responsable
+def editeur_plan(request):
+    from .plan import plan_json
+
+    return render(request, 'stock/reglages/editeur_plan.html', {'plan': plan_json()})
+
+
+@responsable
 def bloc_form(request, pk=None):
     bloc = get_object_or_404(Bloc, pk=pk) if pk else None
     suivant = Bloc.objects.order_by('-x').first()

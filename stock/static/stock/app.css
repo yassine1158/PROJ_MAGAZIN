@@ -119,6 +119,7 @@ svg.ic { width: 20px; height: 20px; flex: none; }
   white-space: nowrap;
 }
 .btn:hover { background: var(--surface-2); text-decoration: none; }
+.btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
 .btn-vert { background: var(--primaire); border-color: var(--primaire); color: #fff; }
 .btn-vert:hover { background: var(--primaire-fonce); }
 .btn-orange { background: var(--orange); border-color: var(--orange); color: #fff; }
@@ -335,3 +336,60 @@ input[type=checkbox], input[type=radio] { width: 18px; height: 18px; accent-colo
 .plan-etagere { fill: #94a3b8; stroke: #475569; stroke-width: .04; }
 .plan-svg a:hover .plan-etagere { fill: var(--primaire); }
 .plan-code { font-size: .38px; font-weight: 600; fill: #16202a; dominant-baseline: text-after-edge; }
+
+/* =========================================================
+   Éditeur du plan
+   ========================================================= */
+.editeur { padding-top: 20px; padding-bottom: 20px; }
+.barre-editeur { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.outils-dessin { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+.outils-dessin.desactive [data-outil] { opacity: .4; pointer-events: none; }
+.outils-dessin button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 9px; border: 1px solid transparent;
+  background: none; color: var(--texte); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer; min-width: 38px; justify-content: center;
+}
+.outils-dessin button:hover:not(:disabled) { background: var(--surface-2); }
+.outils-dessin button.actif { background: var(--primaire-clair); color: var(--primaire-fonce); border-color: var(--primaire); }
+.outils-dessin button:disabled { opacity: .4; cursor: default; }
+.outils-dessin .sep { width: 1px; height: 26px; background: var(--bord); margin: 0 6px; }
+.editeur-corps { display: grid; grid-template-columns: 1fr 320px; gap: 12px; height: calc(100vh - 200px); min-height: 480px; }
+@media (max-width: 1100px) { .editeur-corps { grid-template-columns: 1fr; height: auto; } .zone-dessin { height: 65vh; } }
+.zone-dessin { position: relative; overflow: hidden; }
+.zone-2d, .zone-3d { position: absolute; inset: 0; }
+#plan { width: 100%; height: 100%; display: block; background: #fbfcfd; touch-action: none; user-select: none; }
+#plan[data-outil="selection"] { cursor: default; }
+#plan[data-outil="mur"], #plan[data-outil="bloc"], #plan[data-outil="etagere"] { cursor: crosshair; }
+#plan .objet { cursor: move; }
+#plan[data-outil="mur"] .objet, #plan[data-outil="bloc"] .objet, #plan[data-outil="etagere"] .objet { cursor: crosshair; }
+#plan .etagere { fill: #94a3b8; stroke: #475569; }
+#plan .objet:hover .etagere { fill: #7c8ca3; }
+#plan .mur { stroke: #44403c; }
+#plan .mur.trace { stroke: var(--primaire); opacity: .75; }
+#plan .lbl-bloc { font-weight: 700; pointer-events: none; }
+#plan .grille-fine { stroke: #e8ecf1; stroke-width: 1; }
+#plan .grille-forte { stroke: #cfd7e1; stroke-width: 1; }
+#plan .lbl-etagere { font-weight: 700; fill: #fff; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+#plan .contour-selection { fill: none; stroke: var(--primaire); stroke-dasharray: 6 4; pointer-events: none; }
+#plan .poignee { fill: #fff; stroke: var(--primaire); cursor: nwse-resize; }
+#plan .poignee[data-poignee="ne"], #plan .poignee[data-poignee="sw"] { cursor: nesw-resize; }
+#plan .poignee[data-poignee="p1"], #plan .poignee[data-poignee="p2"] { cursor: crosshair; }
+#plan .trace-rect { fill: var(--primaire); fill-opacity: .12; stroke: var(--primaire); stroke-dasharray: 6 4; }
+.infos-curseur { position: absolute; left: 12px; bottom: 10px; display: flex; gap: 14px; font-size: 13px; color: var(--muted); pointer-events: none;
+  background: rgba(255, 255, 255, .85); padding: 4px 10px; border-radius: 8px; }
+.infos-curseur b { color: var(--primaire-fonce); }
+.message-editeur { position: absolute; top: 12px; left: 50%; transform: translateX(-50%) translateY(-8px); opacity: 0; transition: .2s;
+  background: var(--texte); color: #fff; padding: 10px 16px; border-radius: 10px; font-weight: 600; pointer-events: none; white-space: pre-line; max-width: 80%; }
+.message-editeur.visible { opacity: 1; transform: translateX(-50%); }
+.message-editeur.erreur { background: var(--rouge); }
+.panneau-proprietes { overflow-y: auto; }
+.panneau-proprietes h3 { margin: 0 0 6px; font-size: 17px; }
+.panneau-proprietes .champ { margin-bottom: 10px; }
+.panneau-proprietes input, .panneau-proprietes select { padding: 8px 10px; }
+.panneau-proprietes input[type=color] { height: 39px; padding: 3px; }
+.panneau-proprietes .grille-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.actions-objet { display: flex; gap: 8px; margin-top: 14px; }
+.actions-objet .btn { flex: 1; padding: 9px; }
+.aide-liste { padding-left: 18px; margin: 8px 0; color: var(--muted); font-size: 14px; }
+.aide-liste li { margin-bottom: 8px; }
+kbd { background: var(--surface-2); border: 1px solid var(--bord); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font: 600 12px Inter, sans-serif; color: var(--texte); }
+#etat-sauvegarde.non-enregistre { color: #b45f06; font-weight: 600; }

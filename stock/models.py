@@ -104,6 +104,22 @@ class Etagere(models.Model):
         return f'{self.bloc.code} / {self.code}'
 
 
+class Mur(models.Model):
+    """Mur du magasin, tracé dans l'éditeur de plan (segment de (x1, z1) à (x2, z2), en mètres)."""
+    x1 = models.DecimalField(max_digits=7, decimal_places=2)
+    z1 = models.DecimalField(max_digits=7, decimal_places=2)
+    x2 = models.DecimalField(max_digits=7, decimal_places=2)
+    z2 = models.DecimalField(max_digits=7, decimal_places=2)
+    epaisseur = models.DecimalField('épaisseur (m)', max_digits=4, decimal_places=2, default=Decimal('0.20'))
+    hauteur = models.DecimalField('hauteur (m)', max_digits=5, decimal_places=2, default=Decimal('3.00'))
+
+    class Meta:
+        ordering = ['id']
+
+    def __str__(self):
+        return f'Mur ({self.x1};{self.z1}) → ({self.x2};{self.z2})'
+
+
 class ArticleQuerySet(models.QuerySet):
     def en_alerte(self):
         return self.filter(actif=True, stock__lte=F('stock_min'))

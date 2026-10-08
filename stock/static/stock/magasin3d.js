@@ -69,20 +69,44 @@ export class Magasin3D {
 
     this.repere = this._creerRepere();
     this.scene.add(this.repere);
+    this.contenu = new THREE.Group(); // tout ce qui vient du plan (vidé à chaque nouveau chargement)
+    this.scene.add(this.contenu);
 
     new ResizeObserver(() => this._redimensionner()).observe(conteneur);
     this._redimensionner();
     this.renderer.setAnimationLoop(() => this._boucle());
   }
 
-  charger(plan) {
+  _vider() {
+    this.contenu.traverse((o) => {
+      o.geometry?.dispose();
+      for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); }
+    });
+    this.scene.remove(this.contenu);
+    this.contenu = new THREE.Group();
+    this.scene.add(this.contenu);
+    this.etageres = new Map();
+    this.titresBlocs = [];
+    this.cible = null;
+    this.repere.visible = false;
+  }
+
+  // garderVue : redessine sans bouger la caméra (aperçu en direct de l'éditeur de plan).
+  charger(plan, { garderVue = false } = {}) {
+    const dejaCharge = Boolean(this.centre);
+    this._vider();
     const blocs = plan.blocs || [];
-    if (!blocs.length) return false;
+    const murs = plan.murs || [];
+    if (!blocs.length && !murs.length) return false;
     let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity, maxH = 2;
     for (const b of blocs) {
       minX = Math.min(minX, b.x); minZ = Math.min(minZ, b.z);
       maxX = Math.max(maxX, b.x + b.largeur); maxZ = Math.max(maxZ, b.z + b.profondeur);
       for (const e of b.etageres) maxH = Math.max(maxH, e.hauteur);
+    }
+    for (const m of murs) {
+      minX = Math.min(minX, m.x1, m.x2); maxX = Math.max(maxX, m.x1, m.x2);
+      minZ = Math.min(minZ, m.z1, m.z2); maxZ = Math.max(maxZ, m.z1, m.z2);
     }
     this.limites = { minX, minZ, maxX, maxZ, maxH };
     this.centre = new THREE.Vector3((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
@@ -97,11 +121,11 @@ export class Magasin3D {
     sol.rotation.x = -Math.PI / 2;
     sol.position.copy(this.centre);
     sol.receiveShadow = true;
-    this.scene.add(sol);
+    this.contenu.add(sol);
     const grille = new THREE.GridHelper(this.taille + marge * 2, Math.round(this.taille + marge * 2),
       sombre() ? 0x334155 : 0xcbd5e1, sombre() ? 0x253145 : 0xd9e0ea);
     grille.position.set(this.centre.x, 0.002, this.centre.z);
-    this.scene.add(grille);
+    this.contenu.add(grille);
 
     const s = this.soleil;
     s.position.set(this.centre.x + this.taille * 0.4, this.taille, this.centre.z + this.taille * 0.6);
@@ -114,8 +138,24 @@ export class Magasin3D {
     cam.updateProjectionMatrix();
 
     for (const b of blocs) this._ajouterBloc(b, maxH);
-    this.vueEnsemble(false);
+    for (const m of murs) this._ajouterMur(m);
+    if (!garderVue || !dejaCharge) this.vueEnsemble(false);
     return true;
+  }
+
+  _ajouterMur(m) {
+    const dx = m.x2 - m.x1, dz = m.z2 - m.z1;
+    const longueur = Math.hypot(dx, dz);
+    if (longueur < 0.01) return;
+    const h = m.hauteur || 3, ep = m.epaisseur || 0.2;
+    const mur = new THREE.Mesh(
+      new THREE.BoxGeometry(longueur + ep, h, ep),
+      new THREE.MeshStandardMaterial({ color: sombre() ? 0x64748b : 0xd6d3d1, roughness: 0.9, transparent: true, opacity: 0.92 }),
+    );
+    mur.position.set((m.x1 + m.x2) / 2, h / 2, (m.z1 + m.z2) / 2);
+    mur.rotation.y = -Math.atan2(dz, dx);
+    mur.castShadow = mur.receiveShadow = true;
+    this.contenu.add(mur);
   }
 
   _ajouterBloc(b, maxH) {
@@ -127,18 +167,18 @@ export class Magasin3D {
     zone.rotation.x = -Math.PI / 2;
     zone.position.set(b.x + b.largeur / 2, 0.01, b.z + b.profondeur / 2);
     zone.receiveShadow = true;
-    this.scene.add(zone);
+    this.contenu.add(zone);
 
     const contour = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(b.largeur, 0.001, b.profondeur)),
       new THREE.LineBasicMaterial({ color: couleur }),
     );
     contour.position.set(zone.position.x, 0.02, zone.position.z);
-    this.scene.add(contour);
+    this.contenu.add(contour);
 
     const titre = etiquette(`BLOC ${b.code}`, { taille: 90, fond: b.couleur || '#3b82f6' });
     titre.position.set(zone.position.x, maxH + 1.2, zone.position.z);
-    this.scene.add(titre);
+    this.contenu.add(titre);
     this.titresBlocs.push(titre);
 
     for (const e of b.etageres) this._ajouterEtagere(b, e);
@@ -198,7 +238,7 @@ export class Magasin3D {
     nom.position.set(0, H + 0.35, 0);
     groupe.add(nom);
 
-    this.scene.add(groupe);
+    this.contenu.add(groupe);
     groupe.updateMatrixWorld(true);
     const materiaux = new Set();
     groupe.traverse((o) => { if (o.material) materiaux.add(o.material); });

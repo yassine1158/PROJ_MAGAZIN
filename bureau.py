@@ -84,7 +84,7 @@ def verifier(url, dossier):
     lignes = []
     for chemin in ['bienvenue/', 'connexion/', 'static/stock/app.css', 'static/stock/bon.js',
                    'static/stock/vendor/inter/inter-latin-wght-normal.woff2', 'static/admin/css/base.css',
-                   'static/stock/vendor/three/three.module.min.js', 'admin/login/']:
+                   'static/stock/vendor/three/three.module.min.js', 'static/stock/editeur-plan.js', 'api/plan/', 'admin/login/']:
         with urllib.request.urlopen(url + chemin, timeout=20) as reponse:
             assert reponse.status == 200, chemin
             lignes.append(f'OK {chemin} ({len(reponse.read())} octets)')
@@ -112,7 +112,7 @@ def verifier(url, dossier):
     client.force_login(testeur)
     for chemin in ['/', '/entree/', '/sortie/', '/articles/', '/articles/nouveau/', '/bons/', '/recherche/',
                    '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
-                   '/reglages/plan/', '/reglages/listes/', '/reglages/utilisateurs/', '/admin/']:
+                   '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/admin/']:
         code = client.get(chemin).status_code
         assert code == 200, f'{chemin} → {code}'
         lignes.append(f'OK écran {chemin}')

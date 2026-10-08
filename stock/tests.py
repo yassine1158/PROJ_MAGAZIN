@@ -11,7 +11,7 @@ from django.urls import reverse
 from . import services
 from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Etagere, Inventaire, LigneEntree, LigneInventaire, Parametres,
-    LigneSortie, MouvementStock,
+    LigneSortie, MouvementStock, Mur,
 )
 from .recherche import recherche_locale
 
@@ -403,3 +403,79 @@ class ReglagesTests(Base):
         self.assertContains(rep, 'propres droits')
         self.user.refresh_from_db()
         self.assertTrue(self.user.is_staff)
+
+
+class EditeurPlanTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.bloc = self.etagere.bloc
+
+    def envoyer(self, donnees):
+        import json
+        return self.client.post(reverse('stock:api_plan_enregistrer'), json.dumps(donnees), content_type='application/json')
+
+    def test_page_editeur(self):
+        self.assertContains(self.client.get(reverse('stock:editeur_plan')), 'plan-initial')
+
+    def test_enregistrer_murs_blocs_etageres(self):
+        rep = self.envoyer({
+            'blocs': [{'cle': f'b{self.bloc.pk}', 'id': self.bloc.pk, 'code': 'A', 'nom': 'Pièces', 'couleur': '#123456',
+                       'x': 10, 'z': 5, 'largeur': 12, 'profondeur': 8},
+                      {'cle': 'bn1', 'code': 'B', 'couleur': '#16a34a', 'x': 30, 'z': 5, 'largeur': 6, 'profondeur': 6}],
+            'etageres': [{'id': self.etagere.pk, 'bloc': f'b{self.bloc.pk}', 'code': 'R1', 'x': 12, 'z': 6.5,
+                          'largeur': 2, 'profondeur': 0.9, 'hauteur': 2.4, 'niveaux': 4, 'tournee': False},
+                         {'bloc': 'bn1', 'code': 'E1', 'x': 31, 'z': 6, 'largeur': 2, 'profondeur': 1,
+                          'hauteur': 2, 'niveaux': 3, 'tournee': True}],
+            'murs': [{'x1': 0, 'z1': 0, 'x2': 40, 'z2': 0, 'epaisseur': 0.2, 'hauteur': 3},
+                     {'x1': 5, 'z1': 5, 'x2': 5, 'z2': 5}],  # mur de longueur nulle : ignoré
+        })
+        self.assertEqual(rep.status_code, 200, rep.content)
+        self.etagere.refresh_from_db()
+        self.assertEqual((self.etagere.x, self.etagere.z), (Decimal('2.00'), Decimal('1.50')))  # relatif au bloc
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.etagere, self.etagere)  # l'article garde son étagère
+        nouvelle = Etagere.objects.get(code='E1')
+        self.assertEqual((nouvelle.bloc.code, nouvelle.x, nouvelle.tournee), ('B', Decimal('1.00'), True))
+        self.assertEqual(Mur.objects.count(), 1)
+        self.assertEqual(len(rep.json()['murs']), 1)
+
+    def test_etagere_deplacee_vers_un_nouveau_bloc_garde_ses_articles(self):
+        rep = self.envoyer({
+            'blocs': [{'cle': 'bn1', 'code': 'A', 'couleur': '#16a34a', 'x': 0, 'z': 0, 'largeur': 6, 'profondeur': 6}],
+            'etageres': [{'id': self.etagere.pk, 'bloc': 'bn1', 'code': 'R1', 'x': 1, 'z': 1, 'largeur': 2,
+                          'profondeur': 1, 'hauteur': 2, 'niveaux': 4}],
+            'murs': [],
+        })
+        self.assertEqual(rep.status_code, 200, rep.content)
+        self.assertFalse(Bloc.objects.filter(pk=self.bloc.pk).exists())  # ancien bloc supprimé…
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.etagere_id, self.etagere.pk)  # …mais l'étagère et ses articles restent
+
+    def test_echanger_les_codes_de_deux_blocs(self):
+        autre = Bloc.objects.create(code='B')
+        rep = self.envoyer({'blocs': [
+            {'cle': 'b1', 'id': self.bloc.pk, 'code': 'B', 'x': 0, 'z': 0, 'largeur': 5, 'profondeur': 5},
+            {'cle': 'b2', 'id': autre.pk, 'code': 'A', 'x': 6, 'z': 0, 'largeur': 5, 'profondeur': 5}],
+            'etageres': [], 'murs': []})
+        self.assertEqual(rep.status_code, 200, rep.content)
+        self.bloc.refresh_from_db()
+        self.assertEqual(self.bloc.code, 'B')
+
+    def test_plan_invalide_ne_change_rien(self):
+        rep = self.envoyer({'blocs': [
+            {'cle': 'b1', 'code': 'A', 'x': 0, 'z': 0, 'largeur': 5, 'profondeur': 5},
+            {'cle': 'b2', 'code': 'a', 'x': 6, 'z': 0, 'largeur': 5, 'profondeur': 5}], 'etageres': [], 'murs': []})
+        self.assertEqual(rep.status_code, 400)
+        self.assertIn('même code', rep.json()['erreurs'][0])
+        rep = self.envoyer({'blocs': [{'cle': 'b1', 'code': 'Z', 'x': 0, 'z': 0, 'largeur': -5, 'profondeur': 5}],
+                            'etageres': [], 'murs': []})
+        self.assertEqual(rep.status_code, 400)
+        self.assertTrue(Bloc.objects.filter(pk=self.bloc.pk, code='A').exists())  # tout est annulé
+        self.assertTrue(Etagere.objects.filter(pk=self.etagere.pk).exists())
+
+    def test_reserve_aux_responsables(self):
+        magasinier = get_user_model().objects.create_user('ali', password='Magasin-2026!')
+        self.client.force_login(magasinier)
+        self.assertEqual(self.envoyer({'blocs': [], 'etageres': [], 'murs': []}).status_code, 403)
+        self.assertTrue(Bloc.objects.exists())

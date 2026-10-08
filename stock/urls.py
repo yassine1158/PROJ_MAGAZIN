@@ -50,4 +50,6 @@ urlpatterns = [
     path('api/articles/', v.api_articles, name='api_articles'),
     path('api/articles/<int:pk>/', views.api_article, name='api_article'),
     path('api/plan/', views.api_plan, name='api_plan'),
+    path('api/plan/enregistrer/', views.api_plan_enregistrer, name='api_plan_enregistrer'),
+    path('reglages/plan/editeur/', r.editeur_plan, name='editeur_plan'),
 ]

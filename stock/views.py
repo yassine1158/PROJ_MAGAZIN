@@ -83,22 +83,29 @@ def api_article(request, pk):
 @login_required
 @require_GET
 def api_plan(request):
-    blocs = Bloc.objects.prefetch_related('etageres')
-    return JsonResponse({'blocs': [
-        {
-            'code': b.code, 'nom': b.nom, 'couleur': b.couleur,
-            'x': float(b.x), 'z': float(b.z), 'largeur': float(b.largeur), 'profondeur': float(b.profondeur),
-            'etageres': [
-                {
-                    'id': e.pk, 'code': e.code, 'x': float(e.x), 'z': float(e.z),
-                    'largeur': float(e.largeur), 'profondeur': float(e.profondeur),
-                    'hauteur': float(e.hauteur), 'niveaux': e.nb_niveaux, 'tournee': e.tournee,
-                }
-                for e in b.etageres.all()
-            ],
-        }
-        for b in blocs
-    ]})
+    from .plan import plan_json
+
+    return JsonResponse(plan_json())
+
+
+@login_required
+@require_POST
+def api_plan_enregistrer(request):
+    """Enregistre le plan dessiné dans l'éditeur (responsables seulement)."""
+    import json
+
+    from .plan import PlanInvalide, enregistrer
+
+    if not request.user.is_staff:
+        return JsonResponse({'erreurs': ['Réservé aux responsables.']}, status=403)
+    try:
+        donnees = json.loads(request.body)
+    except ValueError:
+        return JsonResponse({'erreurs': ['Données illisibles.']}, status=400)
+    try:
+        return JsonResponse(enregistrer(donnees))
+    except PlanInvalide as e:
+        return JsonResponse({'erreurs': e.erreurs}, status=400)
 
 
 # =========================================================

@@ -27,7 +27,8 @@ et la caméra s'y déplace.
 ## Réglages (menu de gauche, comptes « Responsable »)
 
 - **Plan du magasin** : blocs (zones) et étagères, avec vue de dessus ; « Ajouter une rangée » crée plusieurs
-  étagères d'un coup.
+  étagères d'un coup. **Dessiner le plan** ouvre l'éditeur graphique : murs, blocs et étagères à la souris
+  (glisser pour déplacer, coins pour agrandir, grille de 50 cm, annuler, dupliquer, tourner), avec un onglet Vue 3D.
 - **Chantiers, engins…** : listes proposées dans les entrées et sorties (chantiers, engins, fournisseurs, catégories).
 - **Utilisateurs** : un compte par personne ; *Magasinier* (entrées, sorties, articles) ou *Responsable* (tout).
 - **Ma société** : nom, logo, couleur, adresse, devise, texte de signature des bons.

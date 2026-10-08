@@ -36,7 +36,7 @@
 
       {% if request.user.is_staff %}
       <div class="titre-groupe">Réglages</div>
-      <a href="{% url 'stock:reglages_plan' %}" class="{% if nom == 'reglages_plan' or nom == 'bloc_nouveau' or nom == 'bloc_modifier' or nom == 'etagere_nouvelle' or nom == 'etagere_modifier' or nom == 'rangee' %}actif{% endif %}">{% icone 'plan' %} Plan du magasin</a>
+      <a href="{% url 'stock:reglages_plan' %}" class="{% if nom == 'reglages_plan' or nom == 'editeur_plan' or nom == 'bloc_nouveau' or nom == 'bloc_modifier' or nom == 'etagere_nouvelle' or nom == 'etagere_modifier' or nom == 'rangee' %}actif{% endif %}">{% icone 'plan' %} Plan du magasin</a>
       <a href="{% url 'stock:reglages_listes' 'chantiers' %}" class="{% if nom == 'reglages_listes' or nom == 'liste_modifier' %}actif{% endif %}">{% icone 'liste' %} Chantiers, engins…</a>
       <a href="{% url 'stock:reglages_utilisateurs' %}" class="{% if nom == 'reglages_utilisateurs' or nom == 'utilisateur_nouveau' or nom == 'utilisateur_modifier' %}actif{% endif %}">{% icone 'utilisateurs' %} Utilisateurs</a>
       <a href="{% url 'stock:reglages_societe' %}" class="{% if nom == 'reglages_societe' %}actif{% endif %}">{% icone 'parametres' %} Ma société</a>

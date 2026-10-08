@@ -8,7 +8,8 @@
     <div><h1>Plan du magasin</h1><p>Les blocs (zones) et leurs étagères. C'est ce plan qui s'affiche en 3D dans « Trouver un article ».</p></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       {% if blocs %}<a class="btn" href="{% url 'stock:recherche' %}">{% icone 'cube' %} Voir en 3D</a>{% endif %}
-      <a class="btn btn-vert" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Nouveau bloc</a>
+      <a class="btn" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Nouveau bloc</a>
+      <a class="btn btn-vert" href="{% url 'stock:editeur_plan' %}">{% icone 'modifier' %} Dessiner le plan</a>
     </div>
   </div>
 
@@ -73,7 +74,8 @@
     <p>1. Créez un bloc pour chaque zone du magasin (ex. : A = Pièces moteur, B = Pneus…).<br>
        2. Dans chaque bloc, ajoutez une rangée d'étagères.<br>
        3. Dans la fiche de chaque article, choisissez son étagère et son niveau.</p>
-    <a class="btn btn-vert" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Créer le premier bloc</a>
+    <a class="btn btn-vert" href="{% url 'stock:editeur_plan' %}">{% icone 'modifier' %} Dessiner le plan</a>
+    <a class="btn" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Créer un bloc avec un formulaire</a>
   </section>
   {% endfor %}
 </main>
