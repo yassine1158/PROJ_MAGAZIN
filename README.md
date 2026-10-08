@@ -22,7 +22,20 @@ et la caméra s'y déplace.
 | **Alertes** | Articles sous le stock minimum, ruptures. |
 | **Rapports** | Tableau de bord, état du stock, consommation par chantier, export **Excel**, bons en **PDF**. |
 
-## Installation
+## Démarrage rapide (Windows)
+
+1. Installer **Python** depuis https://www.python.org/downloads/ en cochant **« Add python.exe to PATH »**.
+2. Sur GitHub : bouton vert **Code › Download ZIP**, puis décompresser le dossier.
+3. Double-cliquer sur **`lancer.bat`**.
+   - La première fois : installation automatique (quelques minutes), puis création du compte
+     administrateur (nom, e-mail facultatif, mot de passe) et proposition d'installer un magasin d'exemple.
+   - Le logiciel s'ouvre dans le navigateur sur http://127.0.0.1:8000.
+4. Les fois suivantes : double-clic sur `lancer.bat`, se connecter, c'est tout. Laisser la fenêtre noire ouverte
+   pendant l'utilisation.
+
+Sous Linux / macOS : `./lancer.sh`.
+
+## Installation manuelle
 
 ```bash
 python -m venv venv
