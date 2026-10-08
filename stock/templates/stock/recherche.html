@@ -1,0 +1,75 @@
+{% extends 'stock/base.html' %}
+{% load static %}
+{% block titre %}Recherche{% endblock %}
+
+{% block contenu %}
+<main class="page" style="padding-bottom:0">
+  <div class="recherche-layout">
+    <section class="panneau">
+      <form id="form-recherche" class="card barre-recherche" autocomplete="off">
+        <input id="q" name="q" type="search" placeholder="Ex. : filtre à huile Volvo, sac ciment, 7assira…" autofocus>
+        <input id="photo" name="photo" type="file" accept="image/*" capture="environment" hidden>
+        <button type="button" class="icone-btn" id="btn-photo" title="Chercher avec une photo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </button>
+        <button type="submit" class="icone-btn primary" title="Chercher">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        </button>
+      </form>
+
+      <div class="ia-etat">
+        {% if ia_active %}
+          <span class="point"></span> IA activée : écrivez comme vous parlez, ou prenez une photo de la pièce.
+        {% else %}
+          <span class="point off"></span> Recherche simple (IA non configurée).
+        {% endif %}
+      </div>
+
+      <div class="photo-apercu" id="photo-apercu">
+        <img alt=""><span>Photo jointe</span>
+        <button type="button" class="btn" id="photo-retirer" style="padding:4px 10px">Retirer</button>
+      </div>
+
+      <div id="explication" class="explication" hidden></div>
+      <div id="resultats" class="resultats">
+        <div class="vide">Cherchez un article : le logiciel vous montre le bloc, l'étagère et le niveau, en 3D.</div>
+      </div>
+    </section>
+
+    <section class="card vue3d" id="vue3d">
+      <div class="legende">
+        <div class="card fiche" id="fiche"></div>
+        <div class="outils3d">
+          <button type="button" id="btn-vue-ensemble">Vue d'ensemble</button>
+          <button type="button" id="btn-vue-dessus">Vue de dessus</button>
+        </div>
+      </div>
+      <div class="aide">Glisser pour tourner · molette pour zoomer · clic droit pour déplacer</div>
+      <div class="plan-vide" id="plan-vide">
+        <div>
+          <p><b>Le plan du magasin est vide.</b></p>
+          <p>Ajoutez vos blocs et étagères dans <a href="{% url 'admin:stock_bloc_changelist' %}">Administration › Blocs</a>.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script type="importmap">
+{ "imports": {
+  "three": "{% static 'stock/vendor/three/three.module.min.js' %}",
+  "three/addons/controls/OrbitControls.js": "{% static 'stock/vendor/three/OrbitControls.js' %}"
+} }
+</script>
+<script>
+  window.MAGASIN = {
+    apiRecherche: "{% url 'stock:api_recherche' %}",
+    apiPlan: "{% url 'stock:api_plan' %}",
+    apiArticle: "{% url 'stock:api_article' 0 %}".replace(/0\/$/, ''),
+    csrf: "{{ csrf_token }}",
+  };
+</script>
+<script type="module" src="{% static 'stock/recherche.js' %}"></script>
+{% endblock %}

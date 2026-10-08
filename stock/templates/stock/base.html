@@ -1,0 +1,35 @@
+{% load static %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titre %}Magasin{% endblock %} · {{ SOCIETE }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <link rel="icon" href="{% static 'stock/logo.png' %}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{% url 'stock:recherche' %}">
+      <img src="{% static 'stock/logo.png' %}" alt="">
+      <span>Magasin</span>
+    </a>
+    {% with nom=request.resolver_match.url_name %}
+    <nav class="nav">
+      <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">Recherche IA</a>
+      <a href="{% url 'stock:dashboard' %}" class="{% if nom == 'dashboard' %}actif{% endif %}">Tableau de bord</a>
+      <a href="{% url 'stock:etat_stock' %}" class="{% if nom == 'etat_stock' %}actif{% endif %}">État du stock</a>
+      <a href="{% url 'stock:consommation' %}" class="{% if nom == 'consommation' %}actif{% endif %}">Consommation</a>
+      <a href="{% url 'admin:stock_bonentree_add' %}">+ Entrée</a>
+      <a href="{% url 'admin:stock_bonsortie_add' %}">+ Sortie</a>
+      <a href="{% url 'admin:index' %}">Administration</a>
+    </nav>
+    {% endwith %}
+    <span class="user">{{ request.user.get_full_name|default:request.user.username }}</span>
+  </header>
+  {% block contenu %}{% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

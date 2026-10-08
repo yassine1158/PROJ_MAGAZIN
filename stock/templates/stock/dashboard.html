@@ -1,0 +1,61 @@
+{% extends 'stock/base.html' %}
+{% block titre %}Tableau de bord{% endblock %}
+{% block contenu %}
+<main class="page">
+  <h1>Tableau de bord</h1>
+  <p class="sous-titre">Vue d'ensemble du magasin.</p>
+
+  <div class="kpis">
+    <div class="card kpi"><div class="label">Articles actifs</div><div class="valeur">{{ nb_articles }}</div></div>
+    <div class="card kpi"><div class="label">Valeur du stock ({{ DEVISE }})</div><div class="valeur">{{ valeur_stock }}</div></div>
+    <div class="card kpi"><div class="label">À commander</div><div class="valeur" style="color:var(--warn)">{{ nb_alertes }}</div></div>
+    <div class="card kpi"><div class="label">En rupture</div><div class="valeur" style="color:var(--danger)">{{ nb_ruptures }}</div></div>
+    <div class="card kpi"><div class="label">Sorties du mois ({{ DEVISE }})</div><div class="valeur">{{ sorties_mois }}</div></div>
+    <div class="card kpi"><div class="label">Bons en brouillon</div><div class="valeur">{{ brouillons }}</div></div>
+  </div>
+
+  <div class="grid-2">
+    <section class="card card-pad">
+      <h2 style="margin-top:0;font-size:17px">Articles à commander</h2>
+      {% if alertes %}
+      <div class="table-wrap"><table class="data">
+        <tr><th>Article</th><th>Emplacement</th><th class="num">Stock</th><th class="num">Min</th></tr>
+        {% for a in alertes %}
+        <tr>
+          <td><a href="{% url 'admin:stock_article_change' a.pk %}">{{ a.code }}</a> {{ a.designation }}</td>
+          <td>{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}">{{ a.emplacement }}</a>{% else %}—{% endif %}</td>
+          <td class="num"><span class="badge {% if a.stock <= 0 %}badge-danger{% else %}badge-warn{% endif %}">{{ a.stock|floatformat:"-3" }} {{ a.unite }}</span></td>
+          <td class="num">{{ a.stock_min|floatformat:"-3" }}</td>
+        </tr>
+        {% endfor %}
+      </table></div>
+      {% else %}<p class="sous-titre">Aucun article sous le stock minimum. 👍</p>{% endif %}
+    </section>
+
+    <section class="card card-pad">
+      <h2 style="margin-top:0;font-size:17px">Sorties du mois par chantier ({{ DEVISE }})</h2>
+      {% for c in par_chantier %}
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between"><span>{{ c.nom }}</span><b>{{ c.valeur }}</b></div>
+        <div class="barre"><span style="width:{{ c.pourcent }}%"></span></div>
+      </div>
+      {% empty %}<p class="sous-titre">Aucune sortie ce mois-ci.</p>{% endfor %}
+    </section>
+  </div>
+
+  <section class="card card-pad" style="margin-top:20px">
+    <h2 style="margin-top:0;font-size:17px">Derniers mouvements</h2>
+    <div class="table-wrap"><table class="data">
+      <tr><th>Date</th><th>Bon</th><th>Type</th><th>Article</th><th class="num">Quantité</th><th>Chantier</th></tr>
+      {% for m in derniers %}
+      <tr>
+        <td>{{ m.date|date:"d/m/Y H:i" }}</td><td>{{ m.reference }}</td><td>{{ m.get_type_display }}</td>
+        <td>{{ m.article.code }} {{ m.article.designation }}</td>
+        <td class="num" style="color:{% if m.quantite > 0 %}var(--ok){% else %}var(--danger){% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|floatformat:"-3" }} {{ m.article.unite }}</td>
+        <td>{{ m.chantier|default:"" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="sous-titre">Aucun mouvement pour l'instant.</td></tr>{% endfor %}
+    </table></div>
+  </section>
+</main>
+{% endblock %}
