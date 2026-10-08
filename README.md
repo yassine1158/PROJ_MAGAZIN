@@ -36,8 +36,9 @@ et la caméra s'y déplace.
 - Recherche IA : menu *Réglages › Recherche IA*, coller la clé.
 - Nécessite Windows 10 ou 11 (avec « Microsoft Edge WebView2 Runtime », déjà présent sur la plupart des PC).
 
-**Publier une nouvelle version :** créer un tag `vX.Y.Z` (ex. `git tag v1.1.0 && git push origin v1.1.0`).
-GitHub construit alors le programme sur Windows, le vérifie et met l'installateur dans *Releases*
+**Publier une nouvelle version :** sur GitHub, onglet *Actions* › *Logiciel Windows* › *Run workflow*, indiquer
+le numéro (ex. `1.1.0`). GitHub construit le programme sur Windows, le vérifie et met l'installateur dans *Releases*
+(pousser un tag `vX.Y.Z` fonctionne aussi)
 (fichiers : `bureau.py`, `bureau/`, `.github/workflows/windows.yml`).
 
 ## Démarrage rapide sans installateur (Windows)
