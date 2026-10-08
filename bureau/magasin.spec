@@ -1,10 +1,14 @@
 # Construction de la version bureau : pyinstaller bureau/magasin.spec
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 RACINE = os.path.abspath(os.path.join(SPECPATH, '..'))
-NOM = 'Magasin SI BETON'
+sys.path.insert(0, RACINE)
+from config import produit  # noqa: E402
+
+NOM = produit.NOM
 
 datas, binaries, hiddenimports = [], [], []
 for paquet in ['django', 'jazzmin', 'reportlab', 'openpyxl', 'PIL', 'anthropic', 'pydantic', 'whitenoise',

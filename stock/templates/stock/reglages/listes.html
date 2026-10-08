@@ -1,0 +1,43 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}{{ titre }}{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>Listes</h1><p>Les choix proposés dans les entrées et les sorties.</p></div></div>
+  <nav class="onglets">
+    {% for cle, nom_onglet in types %}<a href="{% url 'stock:reglages_listes' cle %}" class="{% if cle == type %}actif{% endif %}">{{ nom_onglet }}</a>{% endfor %}
+  </nav>
+  <div class="grid-2" style="grid-template-columns:2fr 1fr;align-items:start">
+    <section class="carte table-wrap">
+      <table class="data">
+        <thead><tr>{% for c in champs %}<th>{{ c.verbose_name|capfirst }}</th>{% endfor %}<th></th></tr></thead>
+        <tbody>
+        {% for e in elements %}
+          <tr>
+            {% for c in champs %}
+              <td>{% with v=e|attribut:c.name %}{% if c.get_internal_type == 'BooleanField' %}{% if v %}<span class="badge badge-ok">Oui</span>{% else %}<span class="badge badge-gris">Non</span>{% endif %}{% else %}{{ v|default:"—" }}{% endif %}{% endwith %}</td>
+            {% endfor %}
+            <td class="num"><a class="btn btn-icone" href="{% url 'stock:liste_modifier' type e.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="{{ champs|length|add:1 }}" class="vide">Rien pour l'instant.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    <section class="carte carte-pad">
+      <h2>Ajouter</h2>
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+        {% for champ in form %}
+          {% if champ.widget_type == 'checkbox' %}
+            <label style="display:flex;gap:10px;align-items:center;font-weight:500;margin-bottom:16px">{{ champ }} {{ champ.label }}</label>
+          {% else %}{% include 'stock/_champ.html' with champ=champ %}{% endif %}
+        {% endfor %}
+        <button class="btn btn-vert" style="width:100%">{% icone 'plus' %} Ajouter</button>
+      </form>
+    </section>
+  </div>
+</main>
+{% endblock %}

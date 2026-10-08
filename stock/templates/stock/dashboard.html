@@ -51,7 +51,7 @@
       <tr>
         <td>{{ m.date|date:"d/m/Y H:i" }}</td><td>{{ m.reference }}</td><td>{{ m.get_type_display }}</td>
         <td>{{ m.article.code }} {{ m.article.designation }}</td>
-        <td class="num" style="color:{% if m.quantite > 0 %}var(--vert){% else %}var(--rouge){% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|floatformat:"-3" }} {{ m.article.unite }}</td>
+        <td class="num" style="color:{% if m.quantite > 0 %}var(--primaire){% else %}var(--rouge){% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|floatformat:"-3" }} {{ m.article.unite }}</td>
         <td>{{ m.chantier|default:"" }}</td>
       </tr>
       {% empty %}<tr><td colspan="6" class="muted">Aucun mouvement pour l'instant.</td></tr>{% endfor %}

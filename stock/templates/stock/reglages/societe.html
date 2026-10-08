@@ -1,0 +1,44 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Ma société{% endblock %}
+{% block contenu %}
+<main class="page" style="max-width:980px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>Ma société</h1><p>Nom, logo et couleur affichés dans le logiciel et sur les bons imprimés.</p></div></div>
+  <form method="post" enctype="multipart/form-data" autocomplete="off">
+    {% csrf_token %}
+    <div class="grid-2">
+      <section class="carte carte-pad">
+        <h2>Identité</h2>
+        {% include 'stock/_champ.html' with champ=form.nom_societe %}
+        {% include 'stock/_champ.html' with champ=form.logo %}
+        {% if parametres.logo %}
+          <div style="display:flex;gap:14px;align-items:center;margin-bottom:16px">
+            <img src="{{ parametres.logo.url }}" alt="" style="max-height:70px;max-width:200px;border:1px solid var(--bord);border-radius:10px;padding:6px;background:#fff">
+            <button class="btn btn-rouge" name="retirer_logo" value="1" formnovalidate>Retirer le logo</button>
+          </div>
+        {% endif %}
+        <div class="champ">
+          <label for="id_couleur">Couleur principale</label>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="color" name="couleur" id="id_couleur" value="{{ form.couleur.value }}" style="width:64px;height:44px;padding:4px">
+            <span class="aide">Boutons, menu et liens. Par défaut : bleu.</span>
+          </div>
+          {% for e in form.couleur.errors %}<div class="erreur-champ">{{ e }}</div>{% endfor %}
+        </div>
+      </section>
+      <section class="carte carte-pad">
+        <h2>Bons imprimés</h2>
+        {% include 'stock/_champ.html' with champ=form.adresse %}
+        {% include 'stock/_champ.html' with champ=form.telephone %}
+        <div class="grille-champs">
+          {% include 'stock/_champ.html' with champ=form.devise %}
+          {% include 'stock/_champ.html' with champ=form.signataire %}
+        </div>
+      </section>
+    </div>
+    <div class="boutons-bas"><button class="btn btn-vert btn-grand">{% icone 'valider' %} Enregistrer</button></div>
+  </form>
+  {% if request.user.is_superuser %}<p class="muted petit" style="margin-top:30px">Pour les cas particuliers : <a href="{% url 'admin:index' %}">réglages avancés</a>.</p>{% endif %}
+</main>
+{% endblock %}

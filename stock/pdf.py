@@ -1,16 +1,16 @@
 """Impression des bons (entrée, sortie, inventaire) en PDF."""
-from django.conf import settings
-from django.contrib.staticfiles import finders
+from xml.sax.saxutils import escape
+
 from django.http import HttpResponse
 from django.utils import timezone
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .models import BonEntree, BonSortie, Inventaire
+from .models import BonEntree, BonSortie, Inventaire, Parametres
 from .utils import nombre, quantite
 
 BLEU = colors.HexColor('#1f497d')
@@ -21,15 +21,25 @@ PETIT = ParagraphStyle('Petit', parent=NORMAL, fontSize=9)
 
 
 def _entete(bon, titre):
-    elements = []
-    logo = finders.find('stock/logo.png')
+    """En-tête : logo et coordonnées de la société (Réglages › Ma société), puis titre du bon."""
+    p = Parametres.actuels()
+    coordonnees = [f'<b>{escape(p.nom_societe)}</b>' if p.nom_societe else '']
+    coordonnees += [escape(x) for x in (p.adresse, p.telephone) if x]
+    texte = Paragraph('<br/>'.join(c for c in coordonnees if c) or '&nbsp;', ParagraphStyle(
+        'Societe', parent=NORMAL, alignment=TA_RIGHT if p.logo else TA_LEFT))
+    logo = None
+    if p.logo:
+        try:
+            logo = Image(p.logo.path, width=45 * mm, height=20 * mm, kind='proportional')
+            logo.hAlign = 'LEFT'
+        except OSError:
+            logo = None
     if logo:
-        img = Image(logo, width=40 * mm, height=17 * mm, kind='proportional')
-        img.hAlign = 'LEFT'
-        elements.append(img)
+        entete = Table([[logo, texte]], colWidths=[90 * mm, 90 * mm])
+        entete.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 0)]))
     else:
-        elements.append(Paragraph(f'<b>{settings.MAGASIN_SOCIETE}</b>', NORMAL))
-    elements.append(Paragraph(f'{titre} N° {bon.numero}', TITRE))
+        entete = texte
+    elements = [entete, Spacer(1, 4 * mm), Paragraph(f'{titre} N° {escape(bon.numero)}', TITRE)]
     if bon.statut != bon.VALIDE:
         elements.append(Paragraph(f'<font color="#d9534f"><b>{bon.get_statut_display().upper()}</b></font>',
                                   ParagraphStyle('Statut', parent=NORMAL, alignment=TA_CENTER)))
@@ -38,7 +48,7 @@ def _entete(bon, titre):
 
 
 def _infos(lignes):
-    table = Table([[Paragraph(f'<b>{k}</b>', NORMAL), Paragraph(str(v or '—'), NORMAL)] for k, v in lignes],
+    table = Table([[Paragraph(f'<b>{k}</b>', NORMAL), Paragraph(escape(str(v or '—')), NORMAL)] for k, v in lignes],
                   colWidths=[45 * mm, 125 * mm], hAlign='LEFT')
     table.setStyle(TableStyle([('BOTTOMPADDING', (0, 0), (-1, -1), 3)]))
     return [table, Spacer(1, 6 * mm)]
@@ -85,7 +95,7 @@ def _date(bon):
 
 
 def _bon_entree(bon):
-    devise = settings.MAGASIN_DEVISE
+    devise = Parametres.actuels().devise
     elements = _entete(bon, "BON D'ENTRÉE")
     elements += _infos([
         ('Date', _date(bon)),
@@ -94,18 +104,18 @@ def _bon_entree(bon):
         ('Observation', bon.observation),
     ])
     lignes = [
-        [l.article.code, Paragraph(l.article.designation, PETIT), f'{quantite(l.quantite)} {l.article.unite}',
+        [l.article.code, Paragraph(escape(l.article.designation), PETIT), f'{quantite(l.quantite)} {l.article.unite}',
          nombre(l.prix_unitaire), nombre(l.montant)]
         for l in bon.lignes.select_related('article')
     ]
     elements += _tableau(['Code', 'Désignation', 'Quantité', 'P.U.', f'Montant ({devise})'], lignes,
                          total=nombre(bon.total()), largeurs=[25 * mm, 70 * mm, 25 * mm, 25 * mm, 30 * mm])
-    elements += _signatures('Le livreur', settings.MAGASIN_SIGNATAIRE)
+    elements += _signatures('Le livreur', Parametres.actuels().signataire)
     return elements
 
 
 def _bon_sortie(bon):
-    devise = settings.MAGASIN_DEVISE
+    devise = Parametres.actuels().devise
     elements = _entete(bon, 'BON DE SORTIE')
     elements += _infos([
         ('Date', _date(bon)),
@@ -115,13 +125,13 @@ def _bon_sortie(bon):
         ('Observation', bon.observation),
     ])
     lignes = [
-        [l.article.code, Paragraph(l.article.designation, PETIT), f'{quantite(l.quantite)} {l.article.unite}',
+        [l.article.code, Paragraph(escape(l.article.designation), PETIT), f'{quantite(l.quantite)} {l.article.unite}',
          nombre(l.prix_unitaire), nombre(l.montant)]
         for l in bon.lignes.select_related('article')
     ]
     elements += _tableau(['Code', 'Désignation', 'Quantité', 'P.U.', f'Montant ({devise})'], lignes,
                          total=nombre(bon.total()), largeurs=[25 * mm, 70 * mm, 25 * mm, 25 * mm, 30 * mm])
-    elements += _signatures(settings.MAGASIN_SIGNATAIRE, 'Le réceptionnaire')
+    elements += _signatures(Parametres.actuels().signataire, 'Le réceptionnaire')
     return elements
 
 
@@ -129,14 +139,14 @@ def _inventaire(bon):
     elements = _entete(bon, "FICHE D'INVENTAIRE")
     elements += _infos([('Date', _date(bon)), ('Observation', bon.observation)])
     lignes = [
-        [l.article.code, Paragraph(l.article.designation, PETIT),
+        [l.article.code, Paragraph(escape(l.article.designation), PETIT),
          quantite(l.stock_theorique if l.stock_theorique is not None else l.article.stock),
          quantite(l.stock_compte), quantite(l.ecart)]
         for l in bon.lignes.select_related('article')
     ]
     elements += _tableau(['Code', 'Désignation', 'Théorique', 'Compté', 'Écart'], lignes,
                          largeurs=[25 * mm, 75 * mm, 25 * mm, 25 * mm, 25 * mm])
-    elements += _signatures(settings.MAGASIN_SIGNATAIRE, 'Le responsable')
+    elements += _signatures(Parametres.actuels().signataire, 'Le responsable')
     return elements
 
 

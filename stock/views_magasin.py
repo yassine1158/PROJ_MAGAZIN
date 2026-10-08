@@ -20,10 +20,10 @@ from django.views.decorators.http import require_GET, require_POST
 
 from . import exports, services
 from .bureau import livrer
-from .forms import ArticleForm, decimal_saisi
+from .forms import ArticleForm, ParametresForm, SocieteDepartForm, decimal_saisi
 from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Fournisseur, Inventaire, LigneEntree,
-    LigneInventaire, LigneSortie, MouvementStock,
+    LigneInventaire, LigneSortie, MouvementStock, Parametres,
 )
 from .recherche import recherche_locale
 from .utils import nombre, quantite
@@ -337,8 +337,11 @@ def bienvenue(request):
     if User.objects.exists():
         return redirect('stock:connexion')
     erreurs, valeurs = [], {}
+    societe = SocieteDepartForm(request.POST or None, request.FILES or None, instance=Parametres.actuels())
     if request.method == 'POST':
         valeurs = request.POST
+        if not societe.is_valid():
+            erreurs += [e for liste in societe.errors.values() for e in liste]
         nom = request.POST.get('username', '').strip()
         mdp, mdp2 = request.POST.get('password', ''), request.POST.get('password2', '')
         if not nom:
@@ -355,13 +358,14 @@ def bienvenue(request):
         if not erreurs:
             utilisateur.set_password(mdp)
             utilisateur.save()
+            societe.save()
             if request.POST.get('demo') and not Article.objects.exists():
                 from .management.commands.demo import Command as Demo
                 call_command(Demo(), stdout=io.StringIO())
             login(request, utilisateur)
             messages.success(request, 'Bienvenue ! Votre compte est créé.')
             return redirect('stock:accueil')
-    return render(request, 'stock/bienvenue.html', {'erreurs': erreurs, 'valeurs': valeurs})
+    return render(request, 'stock/bienvenue.html', {'erreurs': erreurs, 'valeurs': valeurs, 'societe': societe})
 
 
 @login_required

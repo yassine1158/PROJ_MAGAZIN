@@ -1,0 +1,39 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}{{ titre }}{% endblock %}
+{% block contenu %}
+<main class="page" style="max-width:900px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>{{ titre }}</h1>{% if sous_titre %}<p>{{ sous_titre }}</p>{% endif %}</div></div>
+  {% if form.non_field_errors %}<div class="message message-error">{% icone 'alerte' %}<div>{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
+  <form method="post" enctype="multipart/form-data" class="carte carte-pad" autocomplete="off">
+    {% csrf_token %}
+    <div class="grille-champs">
+      {% for champ in form %}
+        {% if champ.widget_type == 'checkbox' %}
+          <div class="champ" style="grid-column:1/-1">
+            <label style="display:flex;gap:10px;align-items:center;font-weight:500">{{ champ }} {{ champ.label }}</label>
+            {% for e in champ.errors %}<div class="erreur-champ">{{ e }}</div>{% endfor %}
+          </div>
+        {% elif champ.widget_type == 'radioselect' %}
+          <div class="champ" style="grid-column:1/-1">
+            <label>{{ champ.label }}</label>
+            {% for choix in champ %}<label class="choix-radio">{{ choix.tag }} {{ choix.choice_label }}</label>{% endfor %}
+          </div>
+        {% else %}
+          {% include "stock/_champ.html" with champ=champ %}
+        {% endif %}
+      {% endfor %}
+    </div>
+    <div class="boutons-bas">
+      <a class="btn" href="{% if retour_url %}{{ retour_url }}{% else %}{% url retour %}{% endif %}">Retour</a>
+      <button class="btn btn-vert btn-grand">{% icone 'valider' %} Enregistrer</button>
+    </div>
+  </form>
+  {% if supprimer %}
+  <form method="post" action="{{ supprimer }}" style="margin-top:18px;text-align:right" onsubmit="return confirm('{{ avertissement_suppression|escapejs }}')">
+    {% csrf_token %}<button class="btn btn-rouge">{% icone 'poubelle' %} Supprimer</button>
+  </form>
+  {% endif %}
+</main>
+{% endblock %}

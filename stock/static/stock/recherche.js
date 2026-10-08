@@ -39,7 +39,7 @@ function badgeStock(a) {
 
 function chipsLieu(a) {
   if (!a.etagere_id) return '<span class="chip">Emplacement non renseigné</span>';
-  let html = `<span class="chip bloc" style="background:var(--vert)">Bloc ${texte(a.bloc)}</span>`;
+  let html = `<span class="chip bloc" style="background:var(--primaire)">Bloc ${texte(a.bloc)}</span>`;
   html += `<span class="chip">Étagère ${texte(a.etagere)}</span>`;
   if (a.niveau) html += `<span class="chip">Niveau ${texte(a.niveau)}</span>`;
   if (a.case) html += `<span class="chip">${texte(a.case)}</span>`;

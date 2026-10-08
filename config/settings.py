@@ -1,4 +1,4 @@
-"""Paramètres du logiciel Magasin SI BÉTON.
+"""Paramètres Django du logiciel (nom du produit : config/produit.py).
 
 En production web, définir les variables d'environnement :
   DJANGO_SECRET_KEY, DJANGO_DEBUG=0, DJANGO_ALLOWED_HOSTS=exemple.pythonanywhere.com
@@ -7,6 +7,8 @@ La version bureau (bureau.py) définit MAGASIN_BUREAU=1 et MAGASIN_DATA_DIR.
 import os
 import secrets
 from pathlib import Path
+
+from config import produit
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -106,10 +108,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'stock:connexion'
 LOGIN_REDIRECT_URL = 'stock:accueil'
 
-# --- Paramètres du magasin ---
-MAGASIN_SOCIETE = os.environ.get('MAGASIN_SOCIETE', 'SI BÉTON')
-MAGASIN_DEVISE = os.environ.get('MAGASIN_DEVISE', 'FCFA')
-MAGASIN_SIGNATAIRE = os.environ.get('MAGASIN_SIGNATAIRE', 'LE MAGASINIER')
+# Nom, logo, couleur, devise de la société : écran Réglages › Ma société (modèle stock.Parametres).
 
 # --- Recherche IA ---
 # Sans clé, la recherche fonctionne quand même (recherche locale sans IA).
@@ -132,13 +131,13 @@ if BUREAU:
     }
 
 JAZZMIN_SETTINGS = {
-    'site_title': 'Magasin SI BÉTON',
+    'site_title': produit.NOM,
     'site_header': 'Magasin',
-    'site_brand': 'Magasin SI BÉTON',
-    'site_logo': 'stock/logo.png',
-    'login_logo': 'stock/logo.png',
+    'site_brand': produit.NOM,
+    'site_logo': 'stock/produit-icone.png',
+    'login_logo': 'stock/produit-icone.png',
     'welcome_sign': 'Gestion du magasin',
-    'copyright': 'SI BÉTON',
+    'copyright': produit.NOM,
     'topmenu_links': [
         {'name': '← Retour au magasin', 'url': 'stock:accueil'},
     ],
@@ -162,4 +161,6 @@ JAZZMIN_SETTINGS = {
         'stock.mouvementstock': 'fas fa-exchange-alt',
     },
     'changeform_format': 'single',
+    'use_google_fonts_cdn': False,  # aucune ressource internet : affichage immédiat
+    'custom_css': 'stock/admin.css',
 }

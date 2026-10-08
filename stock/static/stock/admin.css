@@ -1,0 +1,7 @@
+/* Administration avancée : même police et mêmes couleurs que le reste du logiciel. */
+@import url('app.css');
+body, .main-sidebar, .content-wrapper, h1, h2, h3, h4, .btn { font-family: Inter, system-ui, "Segoe UI", sans-serif !important; }
+.main-sidebar, .brand-link { background: #16202a !important; }
+.btn-primary, .btn-success { background: var(--primaire) !important; border-color: var(--primaire) !important; }
+a { color: var(--primaire); }
+.nav-sidebar .nav-link.active { background: var(--primaire) !important; }

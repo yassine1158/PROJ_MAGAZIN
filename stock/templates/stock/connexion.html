@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Connexion · {{ SOCIETE }}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>Connexion · {{ NOM_AFFICHE }}</title>
   <link rel="stylesheet" href="{% static 'stock/app.css' %}">
-  <link rel="icon" href="{% static 'stock/logo.png' %}">
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
 </head>
 <body>
   <main class="page-connexion">
     <form method="post" class="carte boite-connexion">
       {% csrf_token %}
-      <img src="{% static 'stock/logo.png' %}" alt="{{ SOCIETE }}">
-      <h1>Gestion du magasin</h1>
+      <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+      <h1>{% if SOCIETE %}{{ SOCIETE }}{% else %}Gestion du magasin{% endif %}</h1>
       <p class="sous">Connectez-vous pour continuer</p>
       {% if form.errors %}
         <div class="message message-error">Nom d'utilisateur ou mot de passe incorrect.</div>
@@ -28,6 +28,7 @@
       </div>
       <input type="hidden" name="next" value="{{ next }}">
       <button type="submit" class="btn btn-vert btn-grand">Se connecter</button>
+      <p class="produit-bas">{{ PRODUIT }} · gestion de magasin</p>
     </form>
   </main>
 </body>

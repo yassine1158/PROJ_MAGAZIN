@@ -38,8 +38,8 @@ jobs:
         shell: pwsh
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'donnees'
-          $p = Start-Process -FilePath 'build/dist/Magasin SI BETON/Magasin SI BETON.exe' -ArgumentList '--test' -Wait -PassThru
-          $dossier = Join-Path $env:LOCALAPPDATA 'Magasin SI BETON'
+          $p = Start-Process -FilePath 'build/dist/MagaStock/MagaStock.exe' -ArgumentList '--test' -Wait -PassThru
+          $dossier = Join-Path $env:LOCALAPPDATA 'MagaStock'
           Get-Content (Join-Path $dossier 'erreur-demarrage.txt') -ErrorAction SilentlyContinue
           $rapport = Get-Content (Join-Path $dossier 'verification.txt') -Raw -Encoding utf8 -ErrorAction SilentlyContinue
           Write-Output $rapport
@@ -68,9 +68,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
-          name: Magasin SI BÉTON ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+          name: MagaStock ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
           target_commitish: ${{ github.sha }}
           files: build/installateur/*.exe
           body: |
-            Téléchargez **Installer-Magasin-SI-BETON-….exe** ci-dessous, puis double-cliquez dessus.
+            Téléchargez **Installer-MagaStock-….exe** ci-dessous, puis double-cliquez dessus.
             Vos données sont gardées lors d'une mise à jour.

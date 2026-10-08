@@ -2,7 +2,7 @@ from django.contrib.auth.views import LogoutView
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import views, views_magasin as v
+from . import views, views_magasin as v, views_reglages as r
 
 app_name = 'stock'
 
@@ -11,6 +11,22 @@ urlpatterns = [
     path('connexion/', v.Connexion.as_view(), name='connexion'),
     path('bienvenue/', v.bienvenue, name='bienvenue'),
     path('reglages/ia/', v.reglages_ia, name='reglages_ia'),
+    path('reglages/societe/', r.societe, name='reglages_societe'),
+    path('reglages/plan/', r.plan, name='reglages_plan'),
+    path('reglages/plan/blocs/nouveau/', r.bloc_form, name='bloc_nouveau'),
+    path('reglages/plan/blocs/<int:pk>/', r.bloc_form, name='bloc_modifier'),
+    path('reglages/plan/blocs/<int:pk>/supprimer/', r.bloc_supprimer, name='bloc_supprimer'),
+    path('reglages/plan/blocs/<int:bloc_pk>/etageres/nouvelle/', r.etagere_form, name='etagere_nouvelle'),
+    path('reglages/plan/blocs/<int:bloc_pk>/rangee/', r.rangee, name='rangee'),
+    path('reglages/plan/etageres/<int:pk>/', r.etagere_form, name='etagere_modifier'),
+    path('reglages/plan/etageres/<int:pk>/supprimer/', r.etagere_supprimer, name='etagere_supprimer'),
+    path('reglages/listes/', r.listes, name='reglages_listes_defaut'),
+    path('reglages/listes/<str:type_>/', r.listes, name='reglages_listes'),
+    path('reglages/listes/<str:type_>/<int:pk>/', r.liste_modifier, name='liste_modifier'),
+    path('reglages/listes/<str:type_>/<int:pk>/supprimer/', r.liste_supprimer, name='liste_supprimer'),
+    path('reglages/utilisateurs/', r.utilisateurs, name='reglages_utilisateurs'),
+    path('reglages/utilisateurs/nouveau/', r.utilisateur_form, name='utilisateur_nouveau'),
+    path('reglages/utilisateurs/<int:pk>/', r.utilisateur_form, name='utilisateur_modifier'),
     path('deconnexion/', LogoutView.as_view(next_page='stock:connexion'), name='deconnexion'),
     path('recherche/', views.recherche, name='recherche'),
 

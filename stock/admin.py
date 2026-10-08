@@ -8,7 +8,6 @@ from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Etagere, Fournisseur,
     Inventaire, LigneEntree, LigneInventaire, LigneSortie, MouvementStock,
 )
-from .pdf import reponse_pdf
 from .utils import nombre, quantite
 
 COULEURS_STATUT = {'BROUILLON': '#f59e0b', 'VALIDE': '#16a34a', 'ANNULE': '#dc2626'}
@@ -219,6 +218,8 @@ def annuler_bons(modeladmin, request, queryset):
 
 @admin.action(description='🖨️ Imprimer (PDF)')
 def imprimer_bons(modeladmin, request, queryset):
+    from .pdf import reponse_pdf
+
     return reponse_pdf(list(queryset), f'{queryset.model.PREFIXE}_{queryset.count()}_bons')
 
 

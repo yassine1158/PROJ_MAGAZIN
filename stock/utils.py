@@ -13,3 +13,14 @@ def quantite(valeur):
     valeur = Decimal(valeur or 0).normalize()
     decimales = max(0, -valeur.as_tuple().exponent)
     return nombre(valeur, decimales)
+
+
+def nuances(couleur):
+    """Couleur principale « #rrggbb » → (couleur, version foncée, version très claire) pour l'interface."""
+    try:
+        r, g, b = (int(couleur[i:i + 2], 16) for i in (1, 3, 5))
+    except (TypeError, ValueError):
+        r, g, b = 0x24, 0x57, 0xd6
+    fonce = '#%02x%02x%02x' % tuple(int(c * 0.78) for c in (r, g, b))
+    clair = '#%02x%02x%02x' % tuple(int(c + (255 - c) * 0.88) for c in (r, g, b))
+    return '#%02x%02x%02x' % (r, g, b), fonce, clair

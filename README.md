@@ -1,6 +1,8 @@
-# Magasin SI BÉTON : gestion de magasin avec recherche IA et plan 3D
+# MagaStock — gestion de magasin, recherche IA et plan 3D
 
-Logiciel de gestion du magasin (pièces de rechange, lubrifiants, pneus, outillage, EPI, matériaux…).
+Logiciel de gestion de magasin et de stock (pièces de rechange, lubrifiants, pneus, outillage, EPI, matériaux…),
+prévu pour être utilisé par plusieurs sociétés : chacune règle son nom, son logo et sa couleur dans
+*Réglages › Ma société*. Le nom du produit se change dans `config/produit.py`.
 
 **L'idée :** on écrit ce qu'on cherche comme on le dit (« filtre zit volvo », « smenta », « 7assira »…)
 ou on **prend une photo** de la pièce. Le logiciel trouve l'article et montre **où il est rangé**
@@ -22,17 +24,26 @@ et la caméra s'y déplace.
 | **Alertes** | Articles sous le stock minimum, ruptures. |
 | **Rapports** | Tableau de bord, état du stock, consommation par chantier, export **Excel**, bons en **PDF**. |
 
+## Réglages (menu de gauche, comptes « Responsable »)
+
+- **Plan du magasin** : blocs (zones) et étagères, avec vue de dessus ; « Ajouter une rangée » crée plusieurs
+  étagères d'un coup.
+- **Chantiers, engins…** : listes proposées dans les entrées et sorties (chantiers, engins, fournisseurs, catégories).
+- **Utilisateurs** : un compte par personne ; *Magasinier* (entrées, sorties, articles) ou *Responsable* (tout).
+- **Ma société** : nom, logo, couleur, adresse, devise, texte de signature des bons.
+- **Recherche IA** : clé de l'API Anthropic.
+
 ## Logiciel Windows (recommandé)
 
-1. Sur GitHub, ouvrir **Releases** (colonne de droite) et télécharger **Installer-Magasin-SI-BETON-….exe**.
+1. Sur GitHub, ouvrir **Releases** (colonne de droite) et télécharger **Installer-MagaStock-….exe**.
 2. Double-cliquer dessus. Si Windows affiche « Windows a protégé votre ordinateur » : *Informations
    complémentaires* › *Exécuter quand même* (le programme n'est pas signé numériquement).
-3. Ouvrir **Magasin SI BÉTON** depuis l'icône du bureau. Au premier lancement, créer le compte du responsable.
+3. Ouvrir **MagaStock** depuis l'icône du bureau. Au premier lancement : nom et logo de la société, puis compte du responsable.
 
 - Le logiciel s'ouvre dans sa propre fenêtre, sans navigateur, et fonctionne sans internet.
-- Les données sont dans `%LOCALAPPDATA%\Magasin SI BETON` (base `db.sqlite3`, photos). Pour une **sauvegarde**,
+- Les données sont dans `%LOCALAPPDATA%\MagaStock` (base `db.sqlite3`, photos). Pour une **sauvegarde**,
   copier ce dossier. Elles sont gardées lors d'une mise à jour ou d'une désinstallation.
-- Les PDF et fichiers Excel sont enregistrés dans `Documents\Magasin SI BETON` et s'ouvrent directement.
+- Les PDF et fichiers Excel sont enregistrés dans `Documents\MagaStock` et s'ouvrent directement.
 - Recherche IA : menu *Réglages › Recherche IA*, coller la clé.
 - Nécessite Windows 10 ou 11 (avec « Microsoft Edge WebView2 Runtime », déjà présent sur la plupart des PC).
 

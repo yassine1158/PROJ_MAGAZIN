@@ -3,18 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block titre %}Magasin{% endblock %} · {{ SOCIETE }}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>{% block titre %}Accueil{% endblock %} · {{ NOM_AFFICHE }}</title>
   <link rel="stylesheet" href="{% static 'stock/app.css' %}">
-  <link rel="icon" href="{% static 'stock/logo.png' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
   {% block head %}{% endblock %}
 </head>
 <body>
 {% with nom=request.resolver_match.url_name %}
 <div class="app">
   <aside class="sidebar">
-    <a class="logo" href="{% url 'stock:accueil' %}"><img src="{% static 'stock/logo.png' %}" alt="{{ SOCIETE }}"></a>
+    <a class="logo" href="{% url 'stock:accueil' %}">
+      <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+      {% if SOCIETE and not LOGO_SOCIETE %}<span class="nom-societe">{{ SOCIETE }}</span>{% endif %}
+    </a>
     <nav class="menu">
       <a href="{% url 'stock:accueil' %}" class="{% if nom == 'accueil' %}actif{% endif %}">{% icone 'accueil' %} Accueil</a>
       <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">{% icone 'recherche' %} Trouver un article</a>
@@ -34,11 +36,14 @@
 
       {% if request.user.is_staff %}
       <div class="titre-groupe">Réglages</div>
-      <a href="{% url 'admin:stock_bloc_changelist' %}">{% icone 'plan' %} Plan du magasin</a>
+      <a href="{% url 'stock:reglages_plan' %}" class="{% if nom == 'reglages_plan' or nom == 'bloc_nouveau' or nom == 'bloc_modifier' or nom == 'etagere_nouvelle' or nom == 'etagere_modifier' or nom == 'rangee' %}actif{% endif %}">{% icone 'plan' %} Plan du magasin</a>
+      <a href="{% url 'stock:reglages_listes' 'chantiers' %}" class="{% if nom == 'reglages_listes' or nom == 'liste_modifier' %}actif{% endif %}">{% icone 'liste' %} Chantiers, engins…</a>
+      <a href="{% url 'stock:reglages_utilisateurs' %}" class="{% if nom == 'reglages_utilisateurs' or nom == 'utilisateur_nouveau' or nom == 'utilisateur_modifier' %}actif{% endif %}">{% icone 'utilisateurs' %} Utilisateurs</a>
+      <a href="{% url 'stock:reglages_societe' %}" class="{% if nom == 'reglages_societe' %}actif{% endif %}">{% icone 'parametres' %} Ma société</a>
       <a href="{% url 'stock:reglages_ia' %}" class="{% if nom == 'reglages_ia' %}actif{% endif %}">{% icone 'cube' %} Recherche IA</a>
-      <a href="{% url 'admin:index' %}">{% icone 'parametres' %} Administration</a>
       {% endif %}
     </nav>
+    <div class="produit">{{ PRODUIT }} {{ PRODUIT_VERSION }}</div>
     <div class="pied">
       <div class="avatar">{{ request.user.get_username|first|upper }}</div>
       <div class="nom">{{ request.user.get_full_name|default:request.user.get_username }}</div>
@@ -51,7 +56,7 @@
   <div class="contenu">
     <header class="barre-mobile">
       <button class="btn btn-icone" type="button" onclick="document.body.classList.toggle('menu-ouvert')" aria-label="Menu">{% icone 'menu' %}</button>
-      <img src="{% static 'stock/logo.png' %}" alt="">
+      <img src="{{ LOGO_URL }}" alt="">
     </header>
     {% block contenu %}{% endblock %}
   </div>

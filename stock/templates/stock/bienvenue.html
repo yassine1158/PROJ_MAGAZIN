@@ -3,19 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bienvenue · {{ SOCIETE }}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <title>Bienvenue · {{ PRODUIT }}</title>
   <link rel="stylesheet" href="{% static 'stock/app.css' %}">
-  <link rel="icon" href="{% static 'stock/logo.png' %}">
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
 </head>
 <body>
   <main class="page-connexion">
-    <form method="post" class="carte boite-connexion" style="max-width:460px">
+    <form method="post" enctype="multipart/form-data" class="carte boite-connexion" style="max-width:480px">
       {% csrf_token %}
-      <img src="{% static 'stock/logo.png' %}" alt="{{ SOCIETE }}">
-      <h1>Bienvenue 👋</h1>
-      <p class="sous">Première utilisation : créez le compte du responsable du magasin.</p>
+      <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+      <h1>Bienvenue dans {{ PRODUIT }} 👋</h1>
+      <p class="sous">Première utilisation : votre société et le compte du responsable du magasin.</p>
       {% if erreurs %}<div class="message message-error"><div>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>{% endif %}
+      <div class="champ">
+        <label for="id_nom_societe">Nom de votre société</label>
+        <input id="id_nom_societe" name="nom_societe" value="{{ valeurs.nom_societe|default:'' }}" placeholder="Ex. : Société Générale de Travaux">
+      </div>
+      <div class="champ">
+        <label for="id_logo">Logo de la société</label>
+        <input type="file" id="id_logo" name="logo" accept="image/*">
+        <div class="aide">Facultatif, modifiable plus tard dans Réglages › Ma société.</div>
+      </div>
+      <hr style="border:0;border-top:1px solid var(--bord);margin:18px 0">
       <div class="champ">
         <label for="prenom">Votre prénom</label>
         <input id="prenom" name="prenom" value="{{ valeurs.prenom|default:'' }}" placeholder="Facultatif">

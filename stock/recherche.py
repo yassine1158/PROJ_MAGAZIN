@@ -14,7 +14,6 @@ import unicodedata
 from difflib import SequenceMatcher
 
 from django.conf import settings
-from pydantic import BaseModel, Field
 
 from .models import Article, Categorie
 
@@ -24,10 +23,22 @@ TAILLE_MAX_PHOTO = 8 * 1024 * 1024
 COTE_MAX_PHOTO = 1568
 
 
-class Interpretation(BaseModel):
-    termes: list[str] = Field(description='Termes de recherche en français, du plus précis au plus général.')
-    categorie: str | None = Field(default=None, description='Catégorie du catalogue la plus probable, ou null.')
-    explication: str = Field(description="Une phrase courte, en français, disant ce que l'utilisateur cherche.")
+def _modele_interpretation():
+    """Format de réponse demandé à l'IA (pydantic n'est chargé qu'au premier appel)."""
+    global Interpretation
+    if Interpretation is None:
+        from pydantic import BaseModel, Field
+
+        class _Interpretation(BaseModel):
+            termes: list[str] = Field(description='Termes de recherche en français, du plus précis au plus général.')
+            categorie: str | None = Field(default=None, description='Catégorie du catalogue la plus probable, ou null.')
+            explication: str = Field(description="Une phrase courte, en français, disant ce que l'utilisateur cherche.")
+
+        Interpretation = _Interpretation
+    return Interpretation
+
+
+Interpretation = None
 
 
 CONSIGNES = """Tu aides le magasinier d'une entreprise de BTP et de béton à retrouver un article dans son magasin.
@@ -151,7 +162,7 @@ def interpreter(question, photo=None):
             max_tokens=4000,
             system=CONSIGNES + categories,
             messages=[{'role': 'user', 'content': contenu}],
-            output_format=Interpretation,
+            output_format=_modele_interpretation(),
             output_config={'effort': 'low'},
             betas=['server-side-fallback-2026-07-01'],
             fallbacks='default',

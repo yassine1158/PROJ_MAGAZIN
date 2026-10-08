@@ -37,7 +37,7 @@
 
   <div class="kpis">
     <a class="carte kpi" href="{% url 'stock:articles' %}" style="color:inherit;text-decoration:none"><div class="label">Articles</div><div class="valeur">{{ nb_articles }}</div></a>
-    <a class="carte kpi" href="{% url 'stock:articles' %}?filtre=alerte" style="color:inherit;text-decoration:none"><div class="label">À commander</div><div class="valeur" style="color:{% if NB_ALERTES %}var(--orange){% else %}var(--vert){% endif %}">{{ NB_ALERTES }}</div></a>
+    <a class="carte kpi" href="{% url 'stock:articles' %}?filtre=alerte" style="color:inherit;text-decoration:none"><div class="label">À commander</div><div class="valeur" style="color:{% if NB_ALERTES %}var(--orange){% else %}var(--primaire){% endif %}">{{ NB_ALERTES }}</div></a>
     <div class="carte kpi"><div class="label">Valeur du stock</div><div class="valeur">{{ valeur_stock }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
     <div class="carte kpi"><div class="label">Sorties ce mois</div><div class="valeur">{{ sorties_mois }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
   </div>

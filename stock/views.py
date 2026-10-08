@@ -13,7 +13,6 @@ from django.views.decorators.http import require_GET, require_POST
 from . import exports
 from .bureau import livrer
 from .models import Article, Bloc, BonEntree, BonSortie, Inventaire, MouvementStock
-from .pdf import reponse_pdf
 from .recherche import rechercher
 from .utils import nombre, quantite
 
@@ -180,4 +179,6 @@ def bon_pdf(request, modele, pk):
     if not request.user.has_perm(f'stock.view_{modele}'):
         raise Http404
     bon = get_object_or_404(Modele, pk=pk)
+    from .pdf import reponse_pdf  # reportlab : chargé seulement à l'impression
+
     return livrer(request, reponse_pdf([bon], bon.numero))

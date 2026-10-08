@@ -343,3 +343,43 @@ class MouvementStock(models.Model):
 
     def __str__(self):
         return f'{self.reference} | {self.article.code} | {self.quantite:+}'
+
+
+# =========================================================
+# Paramètres de la société (logiciel vendu à plusieurs sociétés)
+# =========================================================
+
+class Parametres(models.Model):
+    """Une seule ligne : nom, logo et couleur de la société qui utilise le logiciel."""
+    nom_societe = models.CharField('nom de la société', max_length=150, blank=True)
+    logo = models.ImageField(upload_to='societe/', blank=True)
+    couleur = models.CharField('couleur principale', max_length=7, default='#2457d6')
+    adresse = models.CharField(max_length=255, blank=True)
+    telephone = models.CharField('téléphone', max_length=60, blank=True)
+    devise = models.CharField(max_length=10, default='FCFA')
+    signataire = models.CharField('signature des bons', max_length=100, default='Le magasinier',
+                                  help_text='Texte sous la case de signature, sur les bons imprimés.')
+
+    CLE_CACHE = 'parametres-societe'
+
+    class Meta:
+        verbose_name = 'paramètres de la société'
+        verbose_name_plural = 'paramètres de la société'
+
+    def __str__(self):
+        return self.nom_societe or 'Ma société'
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+        from django.core.cache import cache
+        cache.delete(self.CLE_CACHE)
+
+    @classmethod
+    def actuels(cls):
+        from django.core.cache import cache
+        parametres = cache.get(cls.CLE_CACHE)
+        if parametres is None:
+            parametres = cls.objects.filter(pk=1).first() or cls(pk=1)
+            cache.set(cls.CLE_CACHE, parametres, 300)
+        return parametres

@@ -1,5 +1,6 @@
 import io
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -9,10 +10,10 @@ from django.urls import reverse
 
 from . import services
 from .models import (
-    Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Etagere, Inventaire, LigneEntree, LigneInventaire,
+    Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Etagere, Inventaire, LigneEntree, LigneInventaire, Parametres,
     LigneSortie, MouvementStock,
 )
-from .recherche import Interpretation, recherche_locale
+from .recherche import recherche_locale
 
 
 class Base(TestCase):
@@ -152,7 +153,7 @@ class RechercheTests(Base):
 
     def test_api_avec_ia(self):
         self.client.force_login(self.user)
-        ia = Interpretation(termes=['ciment', 'sac de ciment'], categorie='Matériaux', explication='Du ciment.')
+        ia = SimpleNamespace(termes=['ciment', 'sac de ciment'], categorie='Matériaux', explication='Du ciment.')
         with mock.patch('stock.recherche.interpreter', return_value=ia):
             rep = self.client.post(reverse('stock:api_recherche'), {'q': 'smenta'})
         data = rep.json()
@@ -333,3 +334,72 @@ class BureauTests(Base):
             self.assertContains(self.client.get(reverse('stock:reglages_ia')), 'Activée')
             self.client.post(reverse('stock:reglages_ia'), {'supprimer': '1'})
             self.assertFalse((Path(dossier) / 'cle.txt').exists())
+
+
+class ReglagesTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_pages_reglages(self):
+        for url in ['/reglages/societe/', '/reglages/plan/', '/reglages/plan/blocs/nouveau/',
+                    f'/reglages/plan/blocs/{self.etagere.bloc.pk}/', f'/reglages/plan/blocs/{self.etagere.bloc.pk}/rangee/',
+                    f'/reglages/plan/blocs/{self.etagere.bloc.pk}/etageres/nouvelle/', f'/reglages/plan/etageres/{self.etagere.pk}/',
+                    '/reglages/listes/', '/reglages/listes/engins/', '/reglages/listes/fournisseurs/',
+                    '/reglages/listes/categories/', f'/reglages/listes/chantiers/{self.chantier.pk}/',
+                    '/reglages/utilisateurs/', '/reglages/utilisateurs/nouveau/', f'/reglages/utilisateurs/{self.user.pk}/']:
+            self.assertEqual(self.client.get(url).status_code, 200, url)
+
+    def test_magasinier_n_a_pas_acces_aux_reglages(self):
+        magasinier = get_user_model().objects.create_user('ali', password='Magasin-2026!')
+        self.client.force_login(magasinier)
+        self.assertRedirects(self.client.get('/reglages/plan/'), reverse('stock:accueil'))
+        self.assertEqual(self.client.get(reverse('stock:sortie')).status_code, 200)
+
+    def test_societe_change_nom_et_couleur(self):
+        rep = self.client.post('/reglages/societe/', {'nom_societe': 'Ma Société SA', 'couleur': '#138A3C',
+                                                      'devise': 'TND', 'signataire': 'Le chef'})
+        self.assertRedirects(rep, '/reglages/societe/')
+        p = Parametres.actuels()
+        self.assertEqual((p.nom_societe, p.couleur, p.devise), ('Ma Société SA', '#138a3c', 'TND'))
+        page = self.client.get(reverse('stock:accueil')).content.decode()
+        self.assertIn('--primaire: #138a3c', page)
+        self.assertIn('Ma Société SA', page)
+
+    def test_rangee_d_etageres(self):
+        bloc = self.etagere.bloc
+        rep = self.client.post(f'/reglages/plan/blocs/{bloc.pk}/rangee/', {
+            'prefixe': 'R', 'debut': 2, 'nombre': 3, 'x': '1', 'z': '1', 'largeur': '2', 'profondeur': '0,9',
+            'hauteur': '2.4', 'nb_niveaux': 5, 'espace': '0.5'})
+        self.assertRedirects(rep, '/reglages/plan/')
+        codes = list(bloc.etageres.order_by('x').values_list('code', 'x'))
+        self.assertIn(('R4', Decimal('6.00')), codes)
+        # Codes déjà pris : refusé
+        rep = self.client.post(f'/reglages/plan/blocs/{bloc.pk}/rangee/', {
+            'prefixe': 'R', 'debut': 1, 'nombre': 2, 'x': '1', 'z': '1', 'largeur': '2', 'profondeur': '1',
+            'hauteur': '2', 'nb_niveaux': 4, 'espace': '0'})
+        self.assertContains(rep, 'existent déjà')
+
+    def test_supprimer_un_chantier_utilise_est_refuse(self):
+        self.entree(self.filtre, 2, 100)
+        bon = self.sortie(self.filtre, 1)
+        rep = self.client.post(f'/reglages/listes/chantiers/{self.chantier.pk}/supprimer/', follow=True)
+        self.assertContains(rep, 'impossible de le supprimer')
+        self.assertTrue(Chantier.objects.filter(pk=self.chantier.pk).exists())
+        bon.delete()
+
+    def test_creer_un_magasinier(self):
+        rep = self.client.post('/reglages/utilisateurs/nouveau/', {
+            'first_name': 'Moussa', 'username': 'moussa', 'is_active': 'on', 'role': 'magasinier',
+            'mot_de_passe': 'Magasin-2026!'})
+        self.assertRedirects(rep, '/reglages/utilisateurs/')
+        moussa = get_user_model().objects.get(username='moussa')
+        self.assertFalse(moussa.is_staff)
+        self.assertTrue(moussa.check_password('Magasin-2026!'))
+
+    def test_on_ne_peut_pas_se_retirer_ses_droits(self):
+        rep = self.client.post(f'/reglages/utilisateurs/{self.user.pk}/', {
+            'username': 'admin', 'is_active': 'on', 'role': 'magasinier'})
+        self.assertContains(rep, 'propres droits')
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_staff)

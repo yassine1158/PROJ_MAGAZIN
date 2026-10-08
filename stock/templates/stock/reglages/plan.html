@@ -1,0 +1,80 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Plan du magasin{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div><h1>Plan du magasin</h1><p>Les blocs (zones) et leurs étagères. C'est ce plan qui s'affiche en 3D dans « Trouver un article ».</p></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      {% if blocs %}<a class="btn" href="{% url 'stock:recherche' %}">{% icone 'cube' %} Voir en 3D</a>{% endif %}
+      <a class="btn btn-vert" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Nouveau bloc</a>
+    </div>
+  </div>
+
+  {% if svg %}
+  <section class="carte carte-pad" style="margin-bottom:20px">
+    <h2>Vue de dessus <span class="muted petit" style="font-weight:400">· cliquez sur un bloc ou une étagère pour la modifier · l'entrée est en bas</span></h2>
+    <svg class="plan-svg" viewBox="{{ svg.vue }}" preserveAspectRatio="xMidYMid meet">
+      {% for b in svg.blocs %}
+        <a href="{% url 'stock:bloc_modifier' b.objet.pk %}">
+          <rect x="{{ b.x|stringformat:'f' }}" y="{{ b.z|stringformat:'f' }}" width="{{ b.l|stringformat:'f' }}" height="{{ b.p|stringformat:'f' }}"
+                fill="{{ b.objet.couleur }}" fill-opacity=".14" stroke="{{ b.objet.couleur }}" stroke-width=".08" rx=".2"/>
+          <text x="{{ b.x|stringformat:'f' }}" y="{{ b.z|stringformat:'f' }}" dx=".3" dy=".8" class="plan-bloc" fill="{{ b.objet.couleur }}">Bloc {{ b.objet.code }}</text>
+        </a>
+        {% for e in b.etageres %}
+          <a href="{% url 'stock:etagere_modifier' e.objet.pk %}">
+            <rect x="{{ e.x|stringformat:'f' }}" y="{{ e.z|stringformat:'f' }}" width="{{ e.l|stringformat:'f' }}" height="{{ e.p|stringformat:'f' }}" class="plan-etagere" rx=".05"/>
+            <text x="{{ e.x|stringformat:'f' }}" y="{{ e.z|stringformat:'f' }}" class="plan-code" dx=".08" dy="{{ e.p|stringformat:'f' }}">{{ e.objet.code }}</text>
+          </a>
+        {% endfor %}
+      {% endfor %}
+    </svg>
+  </section>
+  {% endif %}
+
+  {% for bloc in blocs %}
+  <section class="carte" style="margin-bottom:16px;overflow:hidden">
+    <div class="entete carte-pad" style="margin:0;border-left:6px solid {{ bloc.couleur }}">
+      <div>
+        <h2 style="margin:0">Bloc {{ bloc.code }}{% if bloc.nom %} · {{ bloc.nom }}{% endif %}</h2>
+        <p class="petit">{{ bloc.largeur|qte }} × {{ bloc.profondeur|qte }} m · {{ bloc.etageres.all|length }} étagère(s) · {{ bloc.nb_articles }} article(s) rangé(s)</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn" href="{% url 'stock:bloc_modifier' bloc.pk %}">{% icone 'modifier' %} Modifier le bloc</a>
+        <a class="btn" href="{% url 'stock:rangee' bloc.pk %}">{% icone 'liste' %} Ajouter une rangée</a>
+        <a class="btn btn-vert" href="{% url 'stock:etagere_nouvelle' bloc.pk %}">{% icone 'plus' %} Étagère</a>
+      </div>
+    </div>
+    {% if bloc.etageres.all %}
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Étagère</th><th class="num">Position (m)</th><th class="num">Taille (m)</th><th class="num">Niveaux</th><th></th></tr></thead>
+        <tbody>
+        {% for e in bloc.etageres.all %}
+          <tr>
+            <td><b>{{ e.code }}</b>{% if e.tournee %} <span class="muted petit">(tournée)</span>{% endif %}</td>
+            <td class="num">{{ e.x|qte }} ; {{ e.z|qte }}</td>
+            <td class="num">{{ e.largeur|qte }} × {{ e.profondeur|qte }} × {{ e.hauteur|qte }}</td>
+            <td class="num">{{ e.nb_niveaux }}</td>
+            <td class="num"><a class="btn btn-icone" href="{% url 'stock:etagere_modifier' e.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="vide" style="padding:18px">Pas encore d'étagère. Utilisez « Ajouter une rangée » pour en créer plusieurs d'un coup.</p>
+    {% endif %}
+  </section>
+  {% empty %}
+  <section class="carte carte-pad vide">
+    <p><b>Le plan est vide.</b></p>
+    <p>1. Créez un bloc pour chaque zone du magasin (ex. : A = Pièces moteur, B = Pneus…).<br>
+       2. Dans chaque bloc, ajoutez une rangée d'étagères.<br>
+       3. Dans la fiche de chaque article, choisissez son étagère et son niveau.</p>
+    <a class="btn btn-vert" href="{% url 'stock:bloc_nouveau' %}">{% icone 'plus' %} Créer le premier bloc</a>
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}

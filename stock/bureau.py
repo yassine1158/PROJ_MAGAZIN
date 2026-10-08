@@ -11,9 +11,11 @@ from django.shortcuts import redirect
 
 
 def dossier_documents():
-    """Documents\\Magasin SI BETON (créé si besoin)."""
+    """Documents\\<nom du produit> (créé si besoin)."""
+    from config import produit
+
     documents = Path.home() / 'Documents'
-    dossier = (documents if documents.is_dir() else settings.DATA_DIR) / 'Magasin SI BETON'
+    dossier = (documents if documents.is_dir() else settings.DATA_DIR) / produit.NOM
     dossier.mkdir(parents=True, exist_ok=True)
     return dossier
 

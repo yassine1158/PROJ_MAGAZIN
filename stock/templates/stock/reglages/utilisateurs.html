@@ -1,0 +1,30 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Utilisateurs{% endblock %}
+{% block contenu %}
+<main class="page">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div><h1>Utilisateurs</h1><p>Qui peut se connecter au logiciel.</p></div>
+    <a class="btn btn-vert" href="{% url 'stock:utilisateur_nouveau' %}">{% icone 'plus' %} Nouveau compte</a>
+  </div>
+  <section class="carte table-wrap">
+    <table class="data">
+      <thead><tr><th></th><th>Nom</th><th>Nom d'utilisateur</th><th>Rôle</th><th>État</th><th>Dernière connexion</th><th></th></tr></thead>
+      <tbody>
+      {% for u in utilisateurs %}
+        <tr>
+          <td style="width:52px"><div class="avatar">{{ u.get_username|first|upper }}</div></td>
+          <td><b>{{ u.get_full_name|default:"—" }}</b>{% if u.pk == request.user.pk %} <span class="muted petit">(vous)</span>{% endif %}</td>
+          <td>{{ u.username }}</td>
+          <td>{% if u.is_staff %}<span class="badge badge-ok">Responsable</span>{% else %}<span class="badge badge-gris">Magasinier</span>{% endif %}</td>
+          <td>{% if u.is_active %}Actif{% else %}<span class="badge badge-danger">Bloqué</span>{% endif %}</td>
+          <td class="muted petit">{{ u.last_login|date:"d/m/Y H:i"|default:"jamais" }}</td>
+          <td class="num"><a class="btn btn-icone" href="{% url 'stock:utilisateur_modifier' u.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</main>
+{% endblock %}

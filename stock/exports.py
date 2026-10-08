@@ -1,12 +1,14 @@
 """Exports Excel."""
 from django.http import HttpResponse
 from django.utils import timezone
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
 
 
 def reponse_excel(titre, entetes, lignes, nom_fichier):
+    # Chargé seulement au moment de l'export, pour un démarrage plus rapide.
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
     wb = Workbook()
     ws = wb.active
     ws.title = titre[:31]
