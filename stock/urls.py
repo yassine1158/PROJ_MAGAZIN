@@ -54,3 +54,21 @@ urlpatterns = [
     path('api/plan/enregistrer/', views.api_plan_enregistrer, name='api_plan_enregistrer'),
     path('reglages/plan/editeur/', r.editeur_plan, name='editeur_plan'),
 ]
+
+# Système
+from . import views_systeme as sy  # noqa: E402
+
+urlpatterns += [
+    path('reglages/sauvegarde/', sy.sauvegarde, name='reglages_sauvegarde'),
+    path('reglages/sauvegarde/nouvelle/', sy.sauvegarde_nouvelle, name='sauvegarde_nouvelle'),
+    path('reglages/sauvegarde/dossier/', sy.sauvegarde_dossier, name='sauvegarde_dossier'),
+    path('reglages/sauvegarde/restaurer/', sy.sauvegarde_restaurer, name='sauvegarde_restaurer'),
+    path('reglages/sauvegarde/restaurer/annuler/', sy.sauvegarde_annuler_restauration,
+         name='sauvegarde_annuler_restauration'),
+    path('reglages/sauvegarde/repartir-a-zero/', sy.repartir_a_zero, name='repartir_a_zero'),
+    path('reglages/sauvegarde/<str:nom>/telecharger/', sy.sauvegarde_telecharger, name='sauvegarde_telecharger'),
+    path('reglages/sauvegarde/<str:nom>/usb/', sy.sauvegarde_usb, name='sauvegarde_usb'),
+    path('reglages/exemple/effacer/', sy.exemple_effacer, name='exemple_effacer'),
+    path('reglages/telephones/', sy.telephones, name='reglages_telephones'),
+    path('reglages/mise-a-jour/verifier/', sy.mise_a_jour_verifier, name='mise_a_jour_verifier'),
+]

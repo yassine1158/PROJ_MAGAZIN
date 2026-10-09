@@ -1,7 +1,8 @@
 """Paramètres Django du logiciel (nom du produit : config/produit.py).
 
 En production web, définir les variables d'environnement :
-  DJANGO_SECRET_KEY, DJANGO_DEBUG=0, DJANGO_ALLOWED_HOSTS=exemple.pythonanywhere.com
+  DJANGO_SECRET_KEY (sinon une clé est créée dans DATA_DIR/secret.key), DJANGO_ALLOWED_HOSTS=exemple.pythonanywhere.com
+DEBUG est désactivé par défaut : lancer.sh et lancer.bat exportent DJANGO_DEBUG=1 pour l'usage local.
 La version bureau (bureau.py) définit MAGASIN_BUREAU=1 et MAGASIN_DATA_DIR.
 """
 import os
@@ -21,17 +22,22 @@ def _secret_local():
     """Clé secrète propre à cette installation, créée au premier lancement."""
     fichier = DATA_DIR / 'secret.key'
     if not fichier.exists():
-        fichier.write_text(secrets.token_urlsafe(50))
-    return fichier.read_text().strip()
+        try:
+            with open(fichier, 'x', encoding='utf-8') as f:  # 'x' : deux lancements simultanés gardent la même clé
+                f.write(secrets.token_urlsafe(50))
+            os.chmod(fichier, 0o600)
+        except FileExistsError:
+            pass
+    return fichier.read_text(encoding='utf-8').strip()
 
 
 if BUREAU:
     SECRET_KEY = _secret_local()
     DEBUG = False
-    ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+    ALLOWED_HOSTS = ['*']  # trié par stock.reseau.ReseauMiddleware : ordinateur et réseau du magasin seulement
 else:
-    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-only-a-remplacer-en-production-0f3b9c1e7a')
-    DEBUG = os.environ.get('DJANGO_DEBUG', '1') == '1'
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY') or _secret_local()
+    DEBUG = os.environ.get('DJANGO_DEBUG', '0') == '1'
     ALLOWED_HOSTS = [h for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
 INSTALLED_APPS = [
@@ -46,6 +52,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'stock.reseau.ReseauMiddleware',  # version bureau : accès des téléphones
     'django.middleware.security.SecurityMiddleware',
     *(['whitenoise.middleware.WhiteNoiseMiddleware'] if BUREAU else []),
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -70,6 +77,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'stock.context_processors.magasin',
+                'stock.context_processors.mise_a_jour',
             ],
         },
     },
@@ -81,6 +89,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': DATA_DIR / 'db.sqlite3',
+        # IMMEDIATE : une écriture prend le verrou dès le début de la transaction ; deux validations
+        # simultanées s'attendent au lieu d'échouer (« database is locked »). SQLite ignore select_for_update.
+        'OPTIONS': {'transaction_mode': 'IMMEDIATE', 'timeout': 20},
     }
 }
 

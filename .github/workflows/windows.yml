@@ -1,12 +1,15 @@
 name: Logiciel Windows
 
+# Construit le logiciel Windows et son installateur. Avec un numéro de version (saisi dans « Run workflow »
+# ou tag vX.Y.Z), publie aussi la version dans Releases. Avant : VERSION dans config/produit.py et
+# bureau/nouveautes.txt.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: 'Numéro de version à publier (ex. 1.0.0). Vide = construire sans publier.'
+        description: 'Numéro de version à publier (ex. 1.5.0), le même que VERSION dans config/produit.py. Vide = construire sans publier.'
         required: false
         default: ''
 
@@ -22,6 +25,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Numéro de version
+        shell: pwsh
+        env:
+          TYPE_REF: ${{ github.ref_type }}
+          NOM_REF: ${{ github.ref_name }}
+          VERSION_DEMANDEE: ${{ inputs.version }}
+        run: |
+          $produit = "$(python -c 'from config import produit; print(produit.VERSION)')".Trim()
+          $mutex = "$(python -c 'from config import produit; print(produit.MUTEX)')".Trim()
+          $demandee = if ($env:TYPE_REF -eq 'tag') { "$env:NOM_REF" } else { "$env:VERSION_DEMANDEE" }
+          $demandee = $demandee.Trim().TrimStart('v', 'V')
+          if ($produit -notmatch '^\d+\.\d+\.\d+$') {
+            Write-Output "::error title=Numéro de version::VERSION dans config/produit.py doit ressembler à 1.5.0 (lu : « $produit »)."
+            exit 1
+          }
+          if ($demandee -and $demandee -ne $produit) {
+            Write-Output ("::error title=Numéro de version::Version demandée : $demandee, mais VERSION vaut $produit dans config/produit.py. " +
+                          "Mettez VERSION = '$demandee' dans config/produit.py (et les nouveautés dans bureau/nouveautes.txt), puis relancez.")
+            exit 1
+          }
+          "VERSION=$produit" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "MUTEX=$mutex" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          if ($demandee) { "Version $produit : construite puis publiée." } else { "Version $produit : construite sans publier." }
 
       - name: Installer les dépendances
         run: pip install -r requirements.txt -r bureau/requirements-bureau.txt
@@ -48,29 +75,93 @@ jobs:
             throw "Le programme ne démarre pas correctement (code $($p.ExitCode))."
           }
 
+      # Petit programme officiel de Microsoft (environ 2 Mo) : l'installateur l'utilise seulement sur les PC
+      # où WebView2 manque. Sans lui (téléchargement impossible), l'installateur est construit quand même.
+      - name: Télécharger le programme d'installation de WebView2
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $fichier = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $fichier
+          $signature = Get-AuthenticodeSignature $fichier
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            throw "Fichier WebView2 non signé par Microsoft ($($signature.Status)) : l'installateur sera construit sans lui."
+          }
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          Move-Item $fichier 'build\MicrosoftEdgeWebview2Setup.exe' -Force
+          "WebView2 : $((Get-Item 'build\MicrosoftEdgeWebview2Setup.exe').Length) octets, signé par Microsoft."
+
       - name: Construire l'installateur
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          $version = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}'.TrimStart('v') }
-                     elseif ('${{ inputs.version }}') { '${{ inputs.version }}' } else { '0.0.0' }
-          & $iscc /Q "/DVersion=$version" bureau\installateur.iss
+          & $iscc /Q "/DVersion=$env:VERSION" "/DMutex=$env:MUTEX" bureau\installateur.iss
           if ($LASTEXITCODE -ne 0) { throw 'Échec de la construction de l''installateur.' }
+          if (-not (Test-Path 'build\MicrosoftEdgeWebview2Setup.exe')) {
+            Write-Output "::warning title=WebView2::Installateur construit sans WebView2 : un PC qui ne l'a pas devra l'installer lui-même."
+          }
+
+      # Informations lues par le logiciel pour signaler la nouvelle version (config/produit.py, MAJ_URL).
+      - name: Préparer version.json
+        shell: pwsh
+        env:
+          DEPOT: ${{ github.repository }}
+        run: |
+          $exe = 'build\installateur\MagaStock-Installation.exe'
+          if (-not (Test-Path $exe)) { throw "Installateur introuvable : $exe" }
+          $notes = ((Get-Content 'bureau\nouveautes.txt' -Encoding utf8) | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+          $info = [ordered]@{
+            version   = $env:VERSION
+            date      = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
+            taille_mo = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+            sha256    = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
+            url       = "https://github.com/$env:DEPOT/releases/download/v$env:VERSION/MagaStock-Installation.exe"
+            notes     = "$notes".Trim()
+          }
+          $info | ConvertTo-Json | Set-Content 'build\installateur\version.json' -Encoding utf8NoBOM
+          Get-Content 'build\installateur\version.json' -Encoding utf8
+          $fin = "FIN_NOTES_$([guid]::NewGuid().ToString('N'))"
+          "NOTES<<$fin`n$($info.notes)`n$fin" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - uses: actions/upload-artifact@v4
         with:
           name: installateur-windows
-          path: build/installateur/*.exe
+          path: |
+            build/installateur/MagaStock-Installation.exe
+            build/installateur/version.json
 
+      # Toujours le même nom de fichier, et cette version marquée « dernière » : le lien
+      # …/releases/latest/download/MagaStock-Installation.exe (site, README) donne donc toujours la dernière version.
       - name: Publier dans Releases
         if: github.ref_type == 'tag' || inputs.version != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
-          name: MagaStock ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+          tag_name: v${{ env.VERSION }}
+          name: MagaStock ${{ env.VERSION }}
           target_commitish: ${{ github.sha }}
-          files: build/installateur/*.exe
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          files: |
+            build/installateur/MagaStock-Installation.exe
+            build/installateur/version.json
           body: |
-            Téléchargez **Installer-MagaStock-….exe** ci-dessous, puis double-cliquez dessus.
-            Vos données sont gardées lors d'une mise à jour.
+            ## Installer MagaStock ${{ env.VERSION }} (Windows 10 ou 11)
+
+            1. Téléchargez **MagaStock-Installation.exe** ci-dessous (rubrique *Assets*).
+            2. Ouvrez le fichier téléchargé. Si Windows affiche « Windows a protégé votre ordinateur », cliquez sur
+               **Informations complémentaires**, puis sur **Exécuter quand même** (le programme n'est pas encore signé
+               numériquement : téléchargez-le seulement depuis cette page ou depuis le site de MagaStock).
+            3. Cliquez sur **Suivant**, puis sur **Installer**. Le logiciel s'ouvre à la fin.
+
+            **Mise à jour :** installez la nouvelle version par-dessus l'ancienne. Vos données (articles, bons, photos,
+            réglages) sont gardées, et une sauvegarde est faite automatiquement avant la mise à jour. Si le logiciel
+            est ouvert, l'installateur vous demande de le fermer.
+
+            Lien direct, toujours vers la dernière version :
+            https://github.com/${{ github.repository }}/releases/latest/download/MagaStock-Installation.exe
+
+            ### Nouveautés
+            ${{ env.NOTES }}

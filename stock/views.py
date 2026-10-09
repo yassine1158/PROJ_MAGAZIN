@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET, require_POST
 from . import exports
 from .bureau import livrer
 from .models import Article, Bloc, BonEntree, BonSortie, Inventaire, MouvementStock
-from .recherche import rechercher
+from .recherche import PhotoIllisible, article_par_code, ia_disponible, rechercher
 from .utils import nombre, quantite
 
 MODELES_BONS = {'bonentree': BonEntree, 'bonsortie': BonSortie, 'inventaire': Inventaire}
@@ -38,7 +38,7 @@ def _article_json(article):
         'etagere': etagere.code if etagere else None,
         'niveau': article.niveau,
         'case': article.case,
-        'admin_url': reverse('admin:stock_article_change', args=[article.pk]),
+        'url': reverse('stock:article_modifier', args=[article.pk]),
     }
 
 
@@ -46,31 +46,65 @@ def _article_json(article):
 # Recherche IA + plan 3D
 # =========================================================
 
+LIMITE_RESULTATS = 12
+
+
+def _resultat_recherche(question, photo=None, avec_ia=False):
+    """Réponse de la recherche : d'abord locale (immédiate) ; avec_ia=True pour la compléter avec l'IA."""
+    if not photo:
+        article = article_par_code(question)  # code exact (douchette, code recopié) : cet article seul
+        if article:
+            return {'ia': False, 'ia_disponible': False, 'exact': True, 'explication': None, 'termes': [],
+                    'resultats': [_article_json(article)], 'plus': False}
+    interpretation, resultats = rechercher(question, photo, avec_ia=avec_ia, limite=LIMITE_RESULTATS + 1)
+    donnees = {
+        'ia': interpretation is not None,
+        'ia_disponible': ia_disponible(),
+        'exact': False,
+        'explication': interpretation.explication if interpretation else None,
+        'termes': interpretation.termes if interpretation else [],
+        'resultats': [_article_json(a) for a in resultats[:LIMITE_RESULTATS]],
+        'plus': len(resultats) > LIMITE_RESULTATS,
+    }
+    if photo and not interpretation and not question.strip():
+        donnees['message'] = ("La recherche par photo ne répond pas pour le moment (connexion Internet ?). "
+                              "Écrivez le nom de l'article.")
+    return donnees
+
+
 @login_required
 def recherche(request):
-    return render(request, 'stock/recherche.html', {'ia_active': settings.MAGASIN_IA_ACTIVE})
+    """Page « Trouver un article ». Avec ?q= (barre de recherche, douchette), les résultats locaux
+    sont calculés tout de suite et inclus dans la page."""
+    question = request.GET.get('q', '').strip()[:500]
+    initial = None
+    if question:
+        initial = _resultat_recherche(question)
+    elif request.GET.get('article', '').isdecimal():
+        article = (Article.objects.filter(pk=int(request.GET['article']))
+                   .select_related('categorie', 'etagere__bloc').first())
+        if article:
+            initial = {'ia_disponible': False, 'exact': True, 'resultats': [_article_json(article)]}
+    return render(request, 'stock/recherche.html', {
+        'ia_active': settings.MAGASIN_IA_ACTIVE, 'q': question, 'initial': initial,
+    })
 
 
 @login_required
 @require_POST
 def api_recherche(request):
+    """POST q (et photo). ?ia=0 : recherche locale seule (réponse immédiate) ; ?ia=1 : avec l'IA."""
     question = request.POST.get('q', '')[:500]
     photo = request.FILES.get('photo')
     if not question.strip() and not photo:
         return JsonResponse({'erreur': 'Écrivez ce que vous cherchez ou prenez une photo.'}, status=400)
     if photo and not settings.MAGASIN_IA_ACTIVE:
-        return JsonResponse({'erreur': "La recherche par photo nécessite l'IA (clé ANTHROPIC_API_KEY)."},
+        return JsonResponse({'erreur': "La recherche par photo n'est pas activée : demandez au responsable."},
                             status=400)
     try:
-        interpretation, resultats = rechercher(question, photo)
-    except ValueError as e:
+        return JsonResponse(_resultat_recherche(question, photo, avec_ia=request.GET.get('ia') != '0'))
+    except PhotoIllisible as e:
         return JsonResponse({'erreur': str(e)}, status=400)
-    return JsonResponse({
-        'ia': interpretation is not None,
-        'explication': interpretation.explication if interpretation else None,
-        'termes': interpretation.termes if interpretation else [],
-        'resultats': [_article_json(a) for a in resultats],
-    })
 
 
 @login_required
@@ -180,12 +214,13 @@ def consommation(request):
 
 @login_required
 def bon_pdf(request, modele, pk):
+    """Bon imprimé ; ?exemplaires=2 : exemplaire magasin + exemplaire réceptionnaire. Visible par tous, comme
+    le détail du bon (un magasinier imprime les bons qu'il fait)."""
     Modele = MODELES_BONS.get(modele)
     if Modele is None:
         raise Http404
-    if not request.user.has_perm(f'stock.view_{modele}'):
-        raise Http404
-    bon = get_object_or_404(Modele, pk=pk)
+    bon = get_object_or_404(Modele, pk=pk)  # comme le détail du bon : tout compte connecté peut l'imprimer
     from .pdf import reponse_pdf  # reportlab : chargé seulement à l'impression
 
-    return livrer(request, reponse_pdf([bon], bon.numero))
+    exemplaires = 2 if request.GET.get('exemplaires') == '2' else 1
+    return livrer(request, reponse_pdf([bon], bon.numero, utilisateur=request.user, exemplaires=exemplaires))

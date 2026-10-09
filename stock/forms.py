@@ -1,23 +1,93 @@
+import io
 import re
-from decimal import Decimal, InvalidOperation
+import unicodedata
+from decimal import Decimal
+from pathlib import Path
 
 from django import forms
 from django.contrib.auth import password_validation
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 
 from .models import Article, Bloc, Categorie, Chantier, Engin, Etagere, Fournisseur, Parametres
+from .utils import nombre, quantite
+
+QTE_MAXI = Decimal('1000000000')     # 1 milliard : reste loin de la limite des colonnes (11 chiffres)
+PRIX_MAXI = Decimal('10000000000')   # 10 milliards
+PHOTO_MAX_OCTETS = 15 * 1024 * 1024
+PHOTO_MAX_COTE = 1600
+
+
+def nombre_saisi(texte, decimales=3, maxi=QTE_MAXI, code_barre=True):
+    """Nombre tapé dans une case : « 1 250,5 » → Decimal('1250.5') ; None si la case est vide.
+
+    Refuse (forms.ValidationError, message en français) : texte qui n'est pas un nombre, nombre négatif,
+    trop grand, trop de chiffres après la virgule, ou code-barres scanné par erreur (code_barre=True).
+    """
+    brut = str(texte if texte is not None else '').strip()
+    if not brut:
+        return None
+    if code_barre and re.fullmatch(r'\d{8,}', brut):
+        raise forms.ValidationError('Ceci ressemble à un code-barres. Tapez la quantité dans cette case.')
+    texte = re.sub(r'\s', '', brut).replace(',', '.')
+    if not re.fullmatch(r'[+-]?(\d+\.?\d*|\.\d+)', texte):
+        raise forms.ValidationError(f'« {brut[:20]} » n\'est pas un nombre.')
+    valeur = Decimal(texte)
+    if valeur < 0:
+        raise forms.ValidationError('Le nombre ne peut pas être négatif.')
+    if valeur > maxi:
+        raise forms.ValidationError(f'Nombre trop grand ({nombre(maxi)} au maximum).')
+    if valeur != valeur.quantize(Decimal(1).scaleb(-decimales)):
+        if not decimales:
+            raise forms.ValidationError('Tapez un nombre entier, sans virgule.')
+        raise forms.ValidationError(f'{decimales} chiffres après la virgule au maximum.')
+    return abs(valeur)  # « -0 » devient 0
+
+
+def prix_saisi(texte):
+    return nombre_saisi(texte, decimales=2, maxi=PRIX_MAXI, code_barre=False)
 
 
 def decimal_saisi(texte):
-    """« 1 250,5 » → Decimal('1250.5') ; None si vide ou invalide."""
-    texte = (texte or '').replace(' ', '').replace('\xa0', '').replace(' ', '').replace(',', '.')
-    if not texte:
-        return None
+    """Ancienne aide, gardée pour compatibilité : None si la case est vide ou la saisie refusée."""
     try:
-        valeur = Decimal(texte)
-    except InvalidOperation:
+        return nombre_saisi(texte, maxi=PRIX_MAXI, code_barre=False)
+    except forms.ValidationError:
         return None
-    return valeur if valeur.is_finite() else None
+
+
+def code_article_automatique(categorie):
+    """Code d'un nouvel article sans code : 3 premières lettres de la catégorie + numéro (MAT-0012)."""
+    lettres = ''.join(c for c in unicodedata.normalize('NFKD', categorie or '') if c.isascii() and c.isalpha())
+    prefixe = lettres[:3].upper() or 'ART'
+    numeros = [int(m.group(1)) for code in Article.objects.filter(code__istartswith=f'{prefixe}-')
+               .values_list('code', flat=True) if (m := re.fullmatch(rf'{prefixe}-(\d+)', code, re.IGNORECASE))]
+    n = max(numeros, default=0) + 1
+    while Article.objects.filter(code__iexact=f'{prefixe}-{n:04d}').exists():
+        n += 1
+    return f'{prefixe}-{n:04d}'
+
+
+def photo_reduite(fichier, cote=PHOTO_MAX_COTE):
+    """Photo ramenée à 1600 px de côté au plus, en JPEG qualité 85 (pages légères sur téléphone)."""
+    from PIL import Image, ImageOps
+
+    fichier.seek(0)
+    with Image.open(fichier) as originale:
+        originale.draft('RGB', (cote, cote))  # JPEG : décodage directement en plus petit
+        image = ImageOps.exif_transpose(originale)
+        if image.mode in ('RGBA', 'LA', 'P', 'PA'):
+            image = image.convert('RGBA')
+            fond = Image.new('RGB', image.size, 'white')
+            fond.paste(image, mask=image.getchannel('A'))
+            image = fond
+        else:
+            image = image.convert('RGB')
+        image.thumbnail((cote, cote))
+        sortie = io.BytesIO()
+        image.save(sortie, 'JPEG', quality=85, optimize=True)
+    return SimpleUploadedFile(f'{Path(fichier.name).stem[:80] or "photo"}.jpg', sortie.getvalue(),
+                              content_type='image/jpeg')
 
 
 class ChoixEtagere(forms.ModelChoiceField):
@@ -30,26 +100,30 @@ class ArticleForm(forms.ModelForm):
                                     help_text='Choisissez dans la liste ou tapez une nouvelle catégorie.')
     etagere = ChoixEtagere(queryset=Etagere.objects.select_related('bloc'), required=False,
                            label='Étagère', empty_label='— Pas encore rangé —')
+    stock_min = forms.CharField(label="Seuil d'alerte (stock minimum)", required=False,
+                                widget=forms.TextInput(attrs={'inputmode': 'decimal'}),
+                                help_text="Quand le stock descend à ce chiffre, l'article passe « À commander ». "
+                                          "0 ou vide : pas d'alerte.")
     stock_initial = forms.CharField(label='Stock de départ', required=False,
+                                    widget=forms.TextInput(attrs={'inputmode': 'decimal'}),
                                     help_text='Quantité déjà présente au magasin (facultatif).')
     prix_initial = forms.CharField(label="Prix d'achat unitaire", required=False,
+                                   widget=forms.TextInput(attrs={'inputmode': 'decimal'}),
                                    help_text='Sert à calculer la valeur du stock (facultatif).')
 
     class Meta:
         model = Article
         fields = ['code', 'designation', 'unite', 'reference_fabricant', 'mots_cles',
                   'etagere', 'niveau', 'case', 'stock_min', 'photo', 'actif']
-        localized_fields = ['stock_min']
-        labels = {'stock_min': "Seuil d'alerte (stock minimum)", 'mots_cles': 'Autres noms utilisés'}
+        labels = {'mots_cles': 'Autres noms utilisés'}
         help_texts = {
             'mots_cles': 'Comment les gens l\'appellent au magasin, séparés par des virgules. Ex. : filtre zit, filtre huile.',
-            'stock_min': 'Quand le stock descend à ce chiffre, l\'article passe « À commander ».',
             'niveau': '1 = en bas.',
         }
         widgets = {
             'mots_cles': forms.TextInput(),
-            'stock_min': forms.TextInput(attrs={'inputmode': 'decimal'}),
             'niveau': forms.NumberInput(attrs={'min': 1}),
+            'photo': forms.ClearableFileInput(attrs={'accept': 'image/*'}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -58,6 +132,15 @@ class ArticleForm(forms.ModelForm):
             self.fields['categorie_nom'].initial = self.instance.categorie.nom
             del self.fields['stock_initial']
             del self.fields['prix_initial']
+            if self.instance.mouvements.exists():
+                # Tout l'historique est compté dans cette unité : la changer fausserait les quantités passées.
+                self.fields['unite'].disabled = True
+                self.fields['unite'].help_text = ('Ne peut plus changer : le stock est déjà compté dans cette unité. '
+                                                  'Créez un nouvel article si besoin.')
+        else:
+            self.fields['code'].required = False
+            self.fields['code'].help_text = 'Laissez vide : un code est créé tout seul (ex. MAT-0012).'
+        self.initial['stock_min'] = quantite(self.instance.stock_min)  # « 100 » et non « 100,000 »
         self.fields['categorie_nom'].widget.attrs['list'] = 'liste-categories'
         # Étagères regroupées par bloc dans la liste déroulante.
         groupes = {}
@@ -65,43 +148,73 @@ class ArticleForm(forms.ModelForm):
             groupes.setdefault(str(e.bloc), []).append((e.pk, self.fields['etagere'].label_from_instance(e)))
         self.fields['etagere'].choices = [('', '— Pas encore rangé —')] + list(groupes.items())
 
-    def _decimal(self, nom, positif=True):
-        valeur = decimal_saisi(self.cleaned_data.get(nom))
-        if self.cleaned_data.get(nom) and valeur is None:
-            raise forms.ValidationError('Nombre invalide.')
-        if valeur is not None and positif and valeur < 0:
-            raise forms.ValidationError('Le nombre doit être positif.')
-        return valeur
+    def clean_code(self):
+        code = self.cleaned_data.get('code', '').strip()
+        autre = Article.objects.filter(code__iexact=code).exclude(pk=self.instance.pk).first() if code else None
+        if autre:
+            raise forms.ValidationError(f'Ce code existe déjà : {autre.designation} ({autre.code}).')
+        return code
+
+    def clean_actif(self):
+        actif = self.cleaned_data.get('actif')
+        stock = self.instance.stock
+        if self.instance.pk and self.instance.actif and not actif and stock != 0:
+            raise forms.ValidationError(
+                f'Il reste {quantite(stock)} {self.instance.unite} en stock : mettez d\'abord le stock à 0 '
+                'par une correction, puis désactivez l\'article.')
+        return actif
+
+    def clean_stock_min(self):
+        return nombre_saisi(self.cleaned_data.get('stock_min')) or Decimal('0')
 
     def clean_stock_initial(self):
-        return self._decimal('stock_initial')
+        return nombre_saisi(self.cleaned_data.get('stock_initial'))
 
     def clean_prix_initial(self):
-        return self._decimal('prix_initial')
+        return prix_saisi(self.cleaned_data.get('prix_initial'))
+
+    def clean_photo(self):
+        photo = self.cleaned_data.get('photo')
+        if not isinstance(photo, UploadedFile):
+            return photo  # pas de nouvelle photo
+        if photo.size > PHOTO_MAX_OCTETS:
+            raise forms.ValidationError('Photo trop lourde : 15 Mo au maximum.')
+        try:
+            return photo_reduite(photo)
+        except Exception:
+            raise forms.ValidationError('Cette photo ne peut pas être lue. Essayez une autre image (JPG ou PNG).')
 
     def clean_niveau(self):
         niveau = self.cleaned_data.get('niveau')
         etagere = self.cleaned_data.get('etagere')
         if niveau and etagere and niveau > etagere.nb_niveaux:
             raise forms.ValidationError(f"Cette étagère n'a que {etagere.nb_niveaux} niveaux.")
+        if niveau and niveau > 99:
+            raise forms.ValidationError("Ce niveau n'existe pas : 1 = en bas.")
         return niveau
 
     def save(self, commit=True):
         nom = self.cleaned_data['categorie_nom'].strip()
         categorie = Categorie.objects.filter(nom__iexact=nom).first() or Categorie.objects.create(nom=nom)
         self.instance.categorie = categorie
+        if not self.instance.code:
+            self.instance.code = code_article_automatique(categorie.nom)
         return super().save(commit)
 
 
 class ParametresForm(forms.ModelForm):
     class Meta:
         model = Parametres
-        fields = ['nom_societe', 'logo', 'couleur', 'adresse', 'telephone', 'devise', 'signataire']
+        fields = ['nom_societe', 'logo', 'couleur', 'adresse', 'telephone', 'devise', 'signataire',
+                  'rccm', 'ncc', 'masquer_prix_sortie']
         widgets = {'couleur': forms.TextInput(attrs={'type': 'color'})}
         help_texts = {
             'logo': 'Affiché dans le logiciel et sur les bons imprimés (PNG ou JPG).',
             'couleur': 'Couleur des boutons et du menu.',
             'devise': 'Ex. : FCFA, TND, EUR.',
+            'signataire': 'Titre de la case de signature du magasin, sur les bons imprimés.',
+            'rccm': 'Ex. : CI-ABJ-2019-B-12345. Imprimé en haut des bons.',
+            'ncc': 'Ex. : 1912345 K. Imprimé en haut des bons.',
         }
 
     def clean_couleur(self):

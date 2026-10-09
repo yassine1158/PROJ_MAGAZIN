@@ -1,6 +1,7 @@
 """Écrans du quotidien : accueil, entrées, sorties, historique des bons, articles."""
 import io
 import os
+import uuid
 from decimal import Decimal
 
 from django.conf import settings
@@ -20,7 +21,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from . import exports, services
 from .bureau import livrer
-from .forms import ArticleForm, ParametresForm, SocieteDepartForm, decimal_saisi
+from .forms import ArticleForm, ParametresForm, SocieteDepartForm, nombre_saisi, prix_saisi
 from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Fournisseur, Inventaire, LigneEntree,
     LigneInventaire, LigneSortie, MouvementStock, Parametres,
@@ -28,6 +29,7 @@ from .models import (
 from .recherche import recherche_locale
 from .utils import nombre, quantite
 from .views import VALEUR, VALEUR_MVT
+from .views_reglages import responsable
 
 TYPES_BONS = {'entree': BonEntree, 'sortie': BonSortie, 'inventaire': Inventaire}
 NOMS_BONS = {BonEntree: 'entree', BonSortie: 'sortie', Inventaire: 'inventaire'}
@@ -40,6 +42,11 @@ class Connexion(LoginView):
     def dispatch(self, request, *args, **kwargs):
         if not get_user_model().objects.exists():  # tout premier lancement
             return redirect('stock:bienvenue')
+        suivant = request.POST.get('next') or request.GET.get('next') or ''
+        if request.user.is_authenticated and not request.user.is_staff and suivant.startswith('/admin'):
+            # Sinon : administration → connexion → administration… sans fin pour un magasinier.
+            messages.error(request, 'Réservé aux responsables.')
+            return redirect('stock:accueil')
         return super().dispatch(request, *args, **kwargs)
 
 
@@ -88,32 +95,69 @@ def accueil(request):
 # Entrées et sorties
 # =========================================================
 
+def _identifiant(texte):
+    """« 12 » → 12 ; None pour tout ce qui n'est pas un identifiant (« abc », « ² », nombre géant…)."""
+    texte = (texte or '').strip()
+    return int(texte) if texte.isascii() and texte.isdigit() and len(texte) < 19 else None
+
+
+def _minuscule(texte):
+    return texte[:1].lower() + texte[1:]
+
+
 def _lire_lignes(request, avec_prix):
     """Lit les lignes du formulaire. Renvoie (lignes, erreurs, lignes_pour_reafficher)."""
     ids = request.POST.getlist('article')
     qtes = request.POST.getlist('quantite')
     prix = request.POST.getlist('prix') if avec_prix else [''] * len(ids)
-    articles = Article.objects.select_related('etagere__bloc').in_bulk([i for i in ids if i.isdigit()])
+    articles = Article.objects.select_related('etagere__bloc').in_bulk(
+        [n for n in map(_identifiant, ids) if n is not None])
     lignes, erreurs, reaffichage = [], [], []
     for n, (i, q, p) in enumerate(zip(ids, qtes, prix + [''] * (len(ids) - len(prix))), start=1):
         if not i and not q.strip():
             continue
-        article = articles.get(int(i)) if i.isdigit() else None
-        quantite_ = decimal_saisi(q)
-        prix_ = decimal_saisi(p) if avec_prix else None
-        if article:
-            reaffichage.append({**_article_choix(article), 'quantite': q, 'prix_saisi': p})
+        article = articles.get(_identifiant(i))
         if not article:
             erreurs.append(f'Ligne {n} : choisissez un article dans la liste.')
-        elif quantite_ is None or quantite_ <= 0:
-            erreurs.append(f'{article.code} : quantité invalide.')
-        elif avec_prix and p.strip() and (prix_ is None or prix_ < 0):
-            erreurs.append(f'{article.code} : prix invalide.')
-        else:
-            lignes.append((article, quantite_, prix_ or Decimal('0')))
+            continue
+        reaffichage.append({**_article_choix(article), 'quantite': q, 'prix_saisi': p})
+        try:
+            quantite_ = nombre_saisi(q)
+            if not quantite_:
+                raise ValidationError('Indiquez une quantité plus grande que 0.')
+        except ValidationError as e:
+            erreurs.append(f'Ligne {n} – {article.designation} – quantité : {_minuscule(e.messages[0])}')
+            continue
+        try:
+            prix_ = prix_saisi(p) if avec_prix else None
+        except ValidationError as e:
+            erreurs.append(f'Ligne {n} – {article.designation} – prix : {_minuscule(e.messages[0])}')
+            continue
+        lignes.append((article, quantite_, prix_ or Decimal('0')))
     if not lignes and not erreurs:
         erreurs.append('Ajoutez au moins un article.')
     return lignes, erreurs, reaffichage
+
+
+def _nouveau_jeton(request):
+    """Jeton anti double envoi, mis dans un champ caché du formulaire et gardé en session."""
+    jeton = uuid.uuid4().hex
+    request.session['jetons_bons'] = request.session.get('jetons_bons', [])[-49:] + [jeton]
+    return jeton
+
+
+def _jeton_recu(request):
+    jeton = request.POST.get('jeton', '')
+    return jeton if jeton in request.session.get('jetons_bons', []) else None
+
+
+def _deja_enregistre(request, Modele, jeton):
+    """Formulaire déjà envoyé (double clic, page renvoyée) : on montre le bon créé la première fois."""
+    bon = Modele.objects.filter(jeton=jeton).first() if jeton else None
+    if bon is None:
+        return None
+    messages.info(request, f'{bon.numero} était déjà enregistré : il n\'a pas été créé une deuxième fois.')
+    return redirect('stock:bon_detail', NOMS_BONS[Modele], bon.pk)
 
 
 def _par_nom(modele, champ, valeur):
@@ -127,16 +171,22 @@ def _par_nom(modele, champ, valeur):
 def entree(request):
     contexte = {'type': 'entree', 'fournisseurs': Fournisseur.objects.values_list('nom', flat=True),
                 'lignes_initiales': [], 'valeurs': {}}
+    jeton = None
     if request.method == 'POST':
+        jeton = _jeton_recu(request)
+        if deja := _deja_enregistre(request, BonEntree, jeton):
+            return deja
         lignes, erreurs, reaffichage = _lire_lignes(request, avec_prix=True)
         if not erreurs:
             try:
                 with transaction.atomic():
+                    if deja := _deja_enregistre(request, BonEntree, jeton):  # envoi simultané : relu sous verrou
+                        return deja
                     bon = BonEntree.objects.create(
                         fournisseur=_par_nom(Fournisseur, 'nom', request.POST.get('fournisseur')),
                         reference=request.POST.get('reference', '').strip()[:100],
                         observation=request.POST.get('observation', '').strip(),
-                        cree_par=request.user,
+                        cree_par=request.user, jeton=jeton,
                     )
                     LigneEntree.objects.bulk_create(
                         [LigneEntree(bon=bon, article=a, quantite=q, prix_unitaire=p) for a, q, p in lignes])
@@ -147,6 +197,7 @@ def entree(request):
                 messages.success(request, f'Entrée {bon.numero} enregistrée : le stock est mis à jour.')
                 return redirect('stock:bon_detail', 'entree', bon.pk)
         contexte.update(erreurs=erreurs, lignes_initiales=reaffichage, valeurs=request.POST)
+    contexte['jeton'] = jeton or _nouveau_jeton(request)
     return render(request, 'stock/bon_form.html', contexte)
 
 
@@ -156,7 +207,11 @@ def sortie(request):
                 'chantiers': Chantier.objects.filter(actif=True).values_list('nom', flat=True),
                 'engins': Engin.objects.filter(actif=True).values_list('code', flat=True),
                 'lignes_initiales': [], 'valeurs': {'demandeur': ''}}
+    jeton = None
     if request.method == 'POST':
+        jeton = _jeton_recu(request)
+        if deja := _deja_enregistre(request, BonSortie, jeton):
+            return deja
         lignes, erreurs, reaffichage = _lire_lignes(request, avec_prix=False)
         if not request.POST.get('chantier', '').strip():
             erreurs.insert(0, 'Indiquez le chantier.')
@@ -165,12 +220,14 @@ def sortie(request):
         if not erreurs:
             try:
                 with transaction.atomic():
+                    if deja := _deja_enregistre(request, BonSortie, jeton):  # envoi simultané : relu sous verrou
+                        return deja
                     bon = BonSortie.objects.create(
                         chantier=_par_nom(Chantier, 'nom', request.POST['chantier']),
                         engin=_par_nom(Engin, 'code', request.POST.get('engin')),
                         demandeur=request.POST['demandeur'].strip()[:150],
                         observation=request.POST.get('observation', '').strip(),
-                        cree_par=request.user,
+                        cree_par=request.user, jeton=jeton,
                     )
                     LigneSortie.objects.bulk_create([LigneSortie(bon=bon, article=a, quantite=q) for a, q, _ in lignes])
                     services.valider(bon, request.user)
@@ -180,6 +237,7 @@ def sortie(request):
                 messages.success(request, f'Sortie {bon.numero} enregistrée : le stock est mis à jour.')
                 return redirect('stock:bon_detail', 'sortie', bon.pk)
         contexte.update(erreurs=erreurs, lignes_initiales=reaffichage, valeurs=request.POST)
+    contexte['jeton'] = jeton or _nouveau_jeton(request)
     return render(request, 'stock/bon_form.html', contexte)
 
 
@@ -224,7 +282,7 @@ def bon_detail(request, type_, pk):
     })
 
 
-@login_required
+@responsable
 @require_POST
 def bon_annuler(request, type_, pk):
     bon = _bon(type_, pk)
@@ -306,14 +364,19 @@ def article_modifier(request, pk):
     return _article_page(request, form, article)
 
 
-@login_required
+@responsable
 @require_POST
 def article_corriger(request, pk):
     """Correction du stock après comptage : crée un petit inventaire validé."""
     article = get_object_or_404(Article, pk=pk)
-    compte = decimal_saisi(request.POST.get('stock_compte'))
-    if compte is None or compte < 0:
-        messages.error(request, 'Indiquez la quantité comptée (un nombre positif).')
+    try:
+        compte = nombre_saisi(request.POST.get('stock_compte'))
+    except ValidationError as e:
+        compte, erreur = None, e.messages[0]
+    else:
+        erreur = 'Indiquez la quantité comptée.'
+    if compte is None:
+        messages.error(request, f'Quantité comptée : {_minuscule(erreur)}')
     elif compte == article.stock:
         messages.info(request, 'Le stock était déjà juste : rien à corriger.')
     else:
@@ -336,7 +399,7 @@ def bienvenue(request):
     User = get_user_model()
     if User.objects.exists():
         return redirect('stock:connexion')
-    erreurs, valeurs = [], {}
+    erreurs, valeurs, erreurs_mdp = [], {}, []
     societe = SocieteDepartForm(request.POST or None, request.FILES or None, instance=Parametres.actuels())
     if request.method == 'POST':
         valeurs = request.POST
@@ -346,15 +409,16 @@ def bienvenue(request):
         mdp, mdp2 = request.POST.get('password', ''), request.POST.get('password2', '')
         if not nom:
             erreurs.append("Choisissez un nom d'utilisateur.")
+        utilisateur = User(username=nom, first_name=request.POST.get('prenom', '').strip()[:150],
+                           is_staff=True, is_superuser=True)
+        # Toutes les remarques sur le mot de passe en une fois, pas une par essai.
         if mdp != mdp2:
-            erreurs.append('Les deux mots de passe ne sont pas identiques.')
-        if not erreurs:
-            utilisateur = User(username=nom, first_name=request.POST.get('prenom', '').strip()[:150],
-                               is_staff=True, is_superuser=True)
-            try:
-                validate_password(mdp, utilisateur)
-            except ValidationError as e:
-                erreurs += e.messages
+            erreurs_mdp.append('Les deux mots de passe ne sont pas identiques.')
+        try:
+            validate_password(mdp, utilisateur)
+        except ValidationError as e:
+            erreurs_mdp += e.messages
+        erreurs += erreurs_mdp
         if not erreurs:
             utilisateur.set_password(mdp)
             utilisateur.save()
@@ -365,7 +429,10 @@ def bienvenue(request):
             login(request, utilisateur)
             messages.success(request, 'Bienvenue ! Votre compte est créé.')
             return redirect('stock:accueil')
-    return render(request, 'stock/bienvenue.html', {'erreurs': erreurs, 'valeurs': valeurs, 'societe': societe})
+    return render(request, 'stock/bienvenue.html', {
+        'erreurs': erreurs, 'valeurs': valeurs, 'societe': societe,
+        'garder_mdp': bool(valeurs) and not erreurs_mdp,  # mot de passe correct : inutile de le retaper
+    })
 
 
 @login_required

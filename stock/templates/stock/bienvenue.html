@@ -32,16 +32,17 @@
       </div>
       <div class="champ">
         <label for="username">Nom d'utilisateur *</label>
-        <input id="username" name="username" value="{{ valeurs.username|default:'' }}" autocomplete="username" required autofocus>
+        <input id="username" name="username" value="{{ valeurs.username|default:'' }}" autocomplete="username" required{% if not valeurs.username or garder_mdp %} autofocus{% endif %}>
       </div>
       <div class="champ">
         <label for="password">Mot de passe *</label>
-        <input type="password" id="password" name="password" autocomplete="new-password" required>
-        <div class="aide">Au moins 8 caractères, pas uniquement des chiffres.</div>
+        <input type="password" id="password" name="password" autocomplete="new-password" required{% if garder_mdp %} value="{{ valeurs.password }}"{% elif valeurs.username %} autofocus{% endif %}>
+        <div class="aide">Au moins 8 caractères, pas uniquement des chiffres, pas un mot de passe trop courant.</div>
       </div>
       <div class="champ">
         <label for="password2">Retapez le mot de passe *</label>
-        <input type="password" id="password2" name="password2" autocomplete="new-password" required>
+        <input type="password" id="password2" name="password2" autocomplete="new-password" required{% if garder_mdp %} value="{{ valeurs.password2 }}"{% endif %}>
+        <label class="case-afficher"><input type="checkbox" id="afficher-mdp"> Afficher le mot de passe</label>
       </div>
       <label style="display:flex;gap:10px;align-items:flex-start;font-weight:500;margin:6px 0 16px">
         <input type="checkbox" name="demo" value="1" style="margin-top:4px" {% if valeurs.demo %}checked{% endif %}>
@@ -50,5 +51,10 @@
       <button type="submit" class="btn btn-vert btn-grand">Créer mon compte</button>
     </form>
   </main>
+  <script>
+    document.getElementById('afficher-mdp').addEventListener('change', (e) => {
+      for (const id of ['password', 'password2']) document.getElementById(id).type = e.target.checked ? 'text' : 'password';
+    });
+  </script>
 </body>
 </html>

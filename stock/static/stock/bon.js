@@ -30,8 +30,10 @@
     if (a.emplacement) texte += ` · ${a.emplacement}`;
     const manque = type === 'sortie' && q > stock;
     if (manque) texte = `Stock insuffisant : il reste ${a.stock_txt} ${a.unite}`;
+    const codeBarre = /^\d{8,}$/.test(tr.querySelector('[name=quantite]').value.trim());
+    if (codeBarre) texte = 'Ceci ressemble à un code-barres : tapez la quantité.';
     info.textContent = texte;
-    info.classList.toggle('manque', manque);
+    info.classList.toggle('manque', manque || codeBarre);
   }
 
   function choisir(tr, a) {

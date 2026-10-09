@@ -3,7 +3,6 @@
 {% block titre %}Ma société{% endblock %}
 {% block contenu %}
 <main class="page" style="max-width:980px">
-  {% include 'stock/_messages.html' %}
   <div class="entete"><div><h1>Ma société</h1><p>Nom, logo et couleur affichés dans le logiciel et sur les bons imprimés.</p></div></div>
   <form method="post" enctype="multipart/form-data" autocomplete="off">
     {% csrf_token %}
@@ -34,6 +33,14 @@
         <div class="grille-champs">
           {% include 'stock/_champ.html' with champ=form.devise %}
           {% include 'stock/_champ.html' with champ=form.signataire %}
+        </div>
+        <div class="grille-champs">
+          {% include 'stock/_champ.html' with champ=form.rccm %}
+          {% include 'stock/_champ.html' with champ=form.ncc %}
+        </div>
+        <div class="champ">
+          <label style="display:flex;gap:10px;align-items:flex-start;font-weight:500">{{ form.masquer_prix_sortie }}
+            <span>{{ form.masquer_prix_sortie.label }}<span class="aide" style="display:block">Le bon remis au chantier montre seulement les articles et les quantités.</span></span></label>
         </div>
       </section>
     </div>

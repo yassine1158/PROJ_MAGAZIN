@@ -1,0 +1,95 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Accès téléphones{% endblock %}
+{% block contenu %}
+<main class="page page-telephones" style="max-width:980px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>Accès depuis les téléphones</h1><p>Les téléphones et tablettes du magasin utilisent le logiciel par le Wi-Fi : trouver un article, faire une entrée ou une sortie…</p></div></div>
+
+  {% if not VERSION_BUREAU %}
+    <section class="carte carte-pad adresse-telephones">
+      <img class="qr" src="{{ qr }}" alt="QR code de l'adresse du logiciel" width="200" height="200">
+      <div>
+        <h2>Version web</h2>
+        <p>Ici, le logiciel fonctionne sur un serveur : l'accès depuis les téléphones se règle sur ce serveur (adresse, réseau, sécurité), pas dans cet écran.</p>
+        <div class="muted">Les téléphones utilisent la même adresse que les ordinateurs :</div>
+        <div class="adresse-geante">{{ adresse_web }}</div>
+      </div>
+    </section>
+  {% else %}
+    <section class="carte carte-pad etat-telephones">
+      <div class="ligne-etat">
+        <div>
+          <span class="muted">État :</span>
+          {% if actif %}<span class="badge badge-ok">Activé</span>
+          {% elif reglage.actif %}<span class="badge badge-danger">Ne fonctionne pas</span>
+          {% else %}<span class="badge badge-gris">Désactivé</span>{% endif %}
+        </div>
+        {% if local %}
+          <form method="post">{% csrf_token %}
+            {% if actif %}
+              <button class="btn btn-rouge" name="action" value="desactiver">{% icone 'annuler' %} Désactiver l'accès des téléphones</button>
+            {% else %}
+              <button class="btn btn-vert btn-grand" name="action" value="activer">{% icone 'telephone' %} {% if reglage.actif %}Réessayer{% else %}Activer l'accès des téléphones{% endif %}</button>
+            {% endif %}
+          </form>
+        {% endif %}
+      </div>
+      {% if erreur %}<div class="message message-error">{% icone 'alerte' %}<div>{{ erreur }}</div></div>{% endif %}
+      {% if not local %}<p class="petit muted">Ce réglage se change seulement sur l'ordinateur où le logiciel est installé.</p>{% endif %}
+      <div class="message message-warning">{% icone 'alerte' %}<div>À n'activer que sur le réseau du magasin (Wi-Fi protégé par un mot de passe). Jamais sur un Wi-Fi public : hôtel, maquis, cybercafé, aéroport…</div></div>
+    </section>
+
+    {% if actif %}
+      <section class="carte carte-pad adresse-telephones">
+        {% if adresse %}
+          <img class="qr" src="{{ qr }}" alt="QR code de l'adresse à ouvrir sur le téléphone" width="240" height="240">
+          <div>
+            <div class="muted">Sur le téléphone, tapez cette adresse :</div>
+            <div class="adresse-geante">{{ adresse }}</div>
+            <p class="muted">ou scannez le QR code avec l'appareil photo du téléphone.</p>
+            {% if autres_adresses %}<p class="petit muted">Si cela ne marche pas, essayez : {% for a in autres_adresses %}<b>{{ a }}</b>{% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+          </div>
+        {% else %}
+          <div class="message message-error">{% icone 'alerte' %}<div>Cet ordinateur n'est relié à aucun réseau. Connectez-le au Wi-Fi (ou au câble) du magasin, puis rechargez cette page.</div></div>
+        {% endif %}
+      </section>
+    {% endif %}
+
+    <section class="carte carte-pad">
+      <h2>Comment faire</h2>
+      <ol class="etapes-telephones">
+        <li><b>Même Wi-Fi.</b> Connectez le téléphone au même Wi-Fi que cet ordinateur (pas en données mobiles).</li>
+        <li><b>Ouvrez l'adresse.</b> Scannez le QR code avec l'appareil photo, ou tapez l'adresse dans le navigateur (Chrome, Safari…).</li>
+        <li><b>Chaque personne se connecte avec son propre compte</b> (nom d'utilisateur et mot de passe). Les comptes se créent dans <a href="{% url 'stock:reglages_utilisateurs' %}">Réglages › Utilisateurs</a>.</li>
+        <li><b>Astuce :</b> dans le menu du navigateur, choisissez « Ajouter à l'écran d'accueil » pour l'ouvrir comme une application.</li>
+      </ol>
+      <div class="message message-info">{% icone 'alerte' %}<div>La première fois, Windows demande d'autoriser l'accès au réseau : cochez <b>« Réseaux privés »</b>, puis cliquez sur <b>« Autoriser »</b>.</div></div>
+      <p class="petit muted">Le logiciel doit rester ouvert sur cet ordinateur pendant que les téléphones l'utilisent.</p>
+    </section>
+
+    <section class="carte carte-pad">
+      <h2>Le téléphone n'arrive pas à ouvrir la page ?</h2>
+      <ul class="aide-liste">
+        <li>Vérifiez que le téléphone est bien sur le Wi-Fi du magasin, et que le logiciel est ouvert sur cet ordinateur.</li>
+        <li>Sur l'ordinateur, le Wi-Fi doit être en « Réseau privé » : Paramètres › Réseau et Internet › Wi-Fi › votre réseau › Réseau privé.</li>
+        <li>Si quelqu'un a cliqué sur « Annuler » quand Windows a posé la question : Panneau de configuration › Pare-feu Windows Defender › Autoriser une application, puis cochez « {{ PRODUIT }} » dans la colonne « Privé ».</li>
+        <li>L'adresse peut changer quand la box ou le routeur Wi-Fi redémarre : revenez sur cette page pour voir la nouvelle.</li>
+      </ul>
+      {% if local %}
+        <details class="reglage-avance">
+          <summary>Réglage avancé : port</summary>
+          <form method="post" class="form-port">{% csrf_token %}
+            <div class="champ">
+              <label for="port">Port</label>
+              <input id="port" name="port" type="number" min="1024" max="65535" value="{{ reglage.port }}" required>
+              <div class="aide">À changer seulement si un autre programme utilise déjà ce port (par défaut {{ port_defaut }}). S'il est occupé, le logiciel essaie les 5 suivants.</div>
+            </div>
+            <button class="btn" name="action" value="port">Enregistrer le port</button>
+          </form>
+        </details>
+      {% endif %}
+    </section>
+  {% endif %}
+</main>
+{% endblock %}

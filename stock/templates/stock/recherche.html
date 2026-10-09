@@ -1,27 +1,34 @@
 {% extends 'stock/base.html' %}
 {% load static %}
-{% block titre %}Recherche{% endblock %}
+{% block titre %}Trouver un article{% endblock %}
 
 {% block contenu %}
 <main class="page page-large" style="padding-bottom:0;padding-top:20px">
   <div class="recherche-layout">
     <section class="panneau">
-      <form id="form-recherche" class="carte barre-recherche" autocomplete="off">
-        <input id="q" name="q" type="search" placeholder="Ex. : filtre à huile Volvo, sac ciment, 7assira…" autofocus>
-        <input id="photo" name="photo" type="file" accept="image/*" capture="environment" hidden>
-        <button type="button" class="icone-btn" id="btn-photo" title="Chercher avec une photo">
+      <form id="form-recherche" class="carte barre-recherche" action="{% url 'stock:recherche' %}" method="get"
+            autocomplete="off" role="search">
+        <input id="q" name="q" type="search" value="{{ q }}" placeholder="Ex. : fer de 10, sac de ciment, filtre gasoil"
+               aria-label="Article à trouver" enterkeyhint="search" data-raccourci-recherche{% if not q %} autofocus{% endif %}>
+        {% if ia_active %}
+        <input id="photo" type="file" accept="image/*" capture="environment" hidden>
+        <button type="button" class="icone-btn" id="btn-photo" title="Chercher avec une photo" aria-label="Chercher avec une photo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         </button>
-        <button type="submit" class="icone-btn primary" title="Chercher">
+        {% endif %}
+        <button type="submit" class="icone-btn primary" title="Chercher" aria-label="Chercher">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         </button>
       </form>
 
       <div class="ia-etat">
         {% if ia_active %}
-          <span class="point"></span> IA activée : écrivez comme vous parlez, ou prenez une photo de la pièce.
+          <span class="point"></span> Écrivez comme vous parlez, ou prenez l'article en photo.
         {% else %}
-          <span class="point off"></span> Recherche simple (IA non configurée).
+          <span class="point off"></span>
+          <span>Par nom, par code ou par emplacement (ex. : R1).
+            {% if request.user.is_staff %}<a href="{% url 'stock:reglages_ia' %}">Activer la recherche par photo</a>{% endif %}
+          </span>
         {% endif %}
       </div>
 
@@ -31,24 +38,29 @@
       </div>
 
       <div id="explication" class="explication" hidden></div>
-      <div id="resultats" class="resultats">
+      <div id="resultats" class="resultats" role="listbox" aria-label="Articles trouvés">
         <div class="vide">Cherchez un article : le logiciel vous montre le bloc, l'étagère et le niveau, en 3D.</div>
       </div>
     </section>
 
     <section class="carte vue3d" id="vue3d">
       <div class="legende">
-        <div class="carte fiche" id="fiche"></div>
+        <div class="carte fiche" id="fiche" aria-live="polite"></div>
         <div class="outils3d">
           <button type="button" id="btn-vue-ensemble">Vue d'ensemble</button>
           <button type="button" id="btn-vue-dessus">Vue de dessus</button>
         </div>
       </div>
       <div class="aide">Glisser pour tourner · molette pour zoomer · clic droit pour déplacer</div>
+      <div class="chargement-3d" id="chargement-3d"><div class="spinner"></div> Chargement du plan…</div>
       <div class="plan-vide" id="plan-vide">
         <div>
           <p><b>Le plan du magasin est vide.</b></p>
+          {% if request.user.is_staff %}
           <p>Ajoutez vos blocs et étagères dans <a href="{% url 'stock:reglages_plan' %}">Réglages › Plan du magasin</a>.</p>
+          {% else %}
+          <p>Le responsable peut dessiner le magasin dans les réglages.</p>
+          {% endif %}
         </div>
       </div>
     </section>
@@ -67,9 +79,11 @@
   window.MAGASIN = {
     apiRecherche: "{% url 'stock:api_recherche' %}",
     apiPlan: "{% url 'stock:api_plan' %}",
-    apiArticle: "{% url 'stock:api_article' 0 %}".replace(/0\/$/, ''),
     csrf: "{{ csrf_token }}",
   };
 </script>
+{{ initial|json_script:"recherche-initiale" }}
 <script type="module" src="{% static 'stock/recherche.js' %}"></script>
+<link rel="modulepreload" href="{% static 'stock/magasin3d.js' %}">
+<link rel="modulepreload" href="{% static 'stock/vendor/three/three.module.min.js' %}">
 {% endblock %}

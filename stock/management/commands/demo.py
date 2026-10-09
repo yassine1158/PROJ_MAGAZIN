@@ -35,7 +35,7 @@ ARTICLES = [
     ('FL-HYD-12', 'Flexible hydraulique 1/2" (m)', 'Hydraulique', 'M', 'B', 'P2', 2, 'flexible, tuyau, tiyo', 10, 45, 6500),
     ('JT-KIT-320', 'Kit joints vérin pelle 320', 'Hydraulique', 'JEU', 'B', 'P3', 2, 'joints, verin', 1, 1, 145000),
     ('EPI-CAS', 'Casque de chantier', 'EPI', 'U', 'C', 'O1', 3, 'casque, kasket', 10, 40, 3500),
-    ('EPI-GAN', 'Gants de manutention (paire)', 'EPI', 'U', 'C', 'O1', 2, 'gants, gant', 20, 15, 1500),
+    ('EPI-GAN', 'Gants de manutention (paire)', 'EPI', 'PAIRE', 'C', 'O1', 2, 'gants, gant', 20, 15, 1500),
     ('EPI-BOT-42', 'Chaussures de sécurité P42', 'EPI', 'U', 'C', 'O2', 1, 'sabbat, chaussures, bottes', 5, 9, 18000),
     ('OUT-MEU-125', 'Disque à meuler 125 mm', 'Outillage', 'U', 'C', 'O3', 2, 'disque, meule', 20, 60, 1200),
     ('OUT-CLE-COMB', 'Jeu de clés mixtes 8–32', 'Outillage', 'JEU', 'C', 'O4', 2, 'clé, mfateh', 1, 3, 42000),

@@ -3,7 +3,6 @@
 {% block titre %}{{ titre }}{% endblock %}
 {% block contenu %}
 <main class="page">
-  {% include 'stock/_messages.html' %}
   <div class="entete"><div><h1>Listes</h1><p>Les choix proposés dans les entrées et les sorties.</p></div></div>
   <nav class="onglets">
     {% for cle, nom_onglet in types %}<a href="{% url 'stock:reglages_listes' cle %}" class="{% if cle == type %}actif{% endif %}">{{ nom_onglet }}</a>{% endfor %}

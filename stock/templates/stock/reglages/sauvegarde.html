@@ -1,0 +1,167 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Sauvegarde{% endblock %}
+{% block contenu %}
+<main class="page page-sauvegarde" style="max-width:1080px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div><h1>Sauvegarde</h1><p>Copies de vos données (articles, bons, plan, photos) pour ne rien perdre en cas de panne, de vol ou de changement d'ordinateur.</p></div>
+    <form method="post" action="{% url 'stock:sauvegarde_nouvelle' %}">{% csrf_token %}
+      <button class="btn btn-vert">{% icone 'sauvegarde' %} Sauvegarder maintenant</button>
+    </form>
+  </div>
+
+  {% if resultat %}
+    <div class="message {% if resultat.ok %}message-success{% else %}message-error{% endif %}">{% if resultat.ok %}{% icone 'valider' %}{% else %}{% icone 'alerte' %}{% endif %}<div>{{ resultat.message }}</div></div>
+  {% endif %}
+
+  {% if attente %}
+    <section class="carte carte-pad restauration-prete">
+      <div>
+        <b>Une restauration est prête.</b>
+        {% if VERSION_BUREAU %}Fermez le logiciel puis rouvrez-le : la sauvegarde choisie sera remise en place au démarrage.
+        {% else %}Redémarrez le serveur : la sauvegarde choisie sera remise en place au démarrage.{% endif %}
+        Vos données actuelles seront sauvegardées juste avant.
+      </div>
+      <form method="post" action="{% url 'stock:sauvegarde_annuler_restauration' %}">{% csrf_token %}
+        <button class="btn">{% icone 'annuler' %} Annuler la restauration</button>
+      </form>
+    </section>
+  {% endif %}
+
+  {% if copie_usb_ancienne %}
+    <div class="message message-warning">{% icone 'alerte' %}<div>Pensez à copier une sauvegarde sur une clé USB et à la ranger hors du magasin : une copie sur le même ordinateur ne protège pas d'une panne ou d'un vol.</div></div>
+  {% endif %}
+
+  <section class="carte">
+    <div class="carte-pad sauvegarde-infos">
+      <h2>Vos sauvegardes</h2>
+      <p class="muted petit">Une sauvegarde est faite automatiquement chaque jour à l'ouverture du logiciel, et avant chaque mise à jour. Les 10 dernières sont gardées, plus une par mois pendant un an.</p>
+      {% if BUREAU %}
+        <div class="sauvegarde-lieux">
+          <div>
+            <div class="muted petit">Dossier des sauvegardes</div>
+            <div class="chemin">{{ dossier }}</div>
+          </div>
+          <form method="post" action="{% url 'stock:sauvegarde_dossier' %}">{% csrf_token %}
+            <button class="btn">Ouvrir le dossier</button>
+          </form>
+        </div>
+        <p class="petit">
+          Clé USB : {% if cles %}<b>{% for c in cles %}{{ c.nom }}{% if not forloop.last %}, {% endif %}{% endfor %}</b>{% else %}<span class="muted">aucune clé branchée</span>{% endif %}
+          · Dernière copie sur clé USB : {% if copie_usb %}<b>le {{ copie_usb.date|date:"d/m/Y" }} à {{ copie_usb.date|date:"H:i" }}</b>{% else %}<span class="muted">jamais</span>{% endif %}
+        </p>
+      {% endif %}
+    </div>
+    {% if sauvegardes %}
+    <div class="table-wrap">
+      <table class="data table-sauvegardes">
+        <thead><tr><th>Date</th><th class="col-type">Type</th><th class="num">Taille</th><th></th></tr></thead>
+        <tbody>
+        {% for sv in sauvegardes %}
+          <tr>
+            <td><b>{{ sv.date|date:"d/m/Y" }}</b> <span class="muted">à {{ sv.date|date:"H:i" }}</span>{% if forloop.first %} <span class="badge badge-ok">la plus récente</span>{% endif %}</td>
+            <td class="col-type">{{ sv.libelle }}</td>
+            <td class="num">{{ sv.taille_lisible }}</td>
+            <td>
+              <div class="actions-sauvegarde">
+                <a class="btn" href="{% url 'stock:sauvegarde_telecharger' sv.nom %}">{% icone 'entree' %} Télécharger</a>
+                {% if BUREAU %}
+                <form method="post" action="{% url 'stock:sauvegarde_usb' sv.nom %}">{% csrf_token %}
+                  {% if cles|length > 1 %}
+                    <select name="cle" aria-label="Clé USB">{% for c in cles %}<option value="{{ c.racine }}">{{ c.nom }}</option>{% endfor %}</select>
+                  {% endif %}
+                  <button class="btn">Copier sur la clé USB</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="vide">Aucune sauvegarde pour l'instant. Cliquez sur « Sauvegarder maintenant ».</p>
+    {% endif %}
+  </section>
+
+  {% if version %}
+  <section class="carte carte-pad version-logiciel" id="version">
+    <div class="ligne-version">
+      <div>
+        <h2>Version du logiciel</h2>
+        <p>Version installée : <b>{{ PRODUIT }} {{ PRODUIT_VERSION }}</b>
+          {% if version.disponible %}<span class="badge badge-warn">Nouvelle version {{ version.disponible.version }} disponible</span>
+          {% elif version.verifie_le %}<span class="badge badge-ok">À jour</span>{% endif %}</p>
+        <p class="muted petit">{% if version.verifie_le %}Dernière vérification : le {{ version.verifie_le|date:"d/m/Y" }} à {{ version.verifie_le|date:"H:i" }}. {% endif %}Le logiciel vérifie lui-même une fois par jour, quand l'ordinateur est connecté à internet.</p>
+      </div>
+      <div class="actions-version">
+        {% if version.disponible and BUREAU %}
+          <a class="btn btn-vert" href="{{ version.disponible.url }}" target="_blank" rel="noopener">{% icone 'entree' %} Télécharger la version {{ version.disponible.version }}</a>
+        {% endif %}
+        <form method="post" action="{% url 'stock:mise_a_jour_verifier' %}">{% csrf_token %}
+          <button class="btn">{% icone 'historique' %} Vérifier les mises à jour</button>
+        </form>
+      </div>
+    </div>
+    {% if version.erreur %}
+      <div class="message message-warning">{% icone 'alerte' %}<div>Vérification impossible le {{ version.essai_le|date:"d/m/Y" }} à {{ version.essai_le|date:"H:i" }}. {{ version.erreur }}</div></div>
+    {% endif %}
+    {% if version.disponible %}
+      {% if BUREAU %}
+        <ol class="etapes-maj petit">
+          <li>Cliquez sur « Télécharger la version {{ version.disponible.version }} », puis ouvrez le fichier téléchargé.</li>
+          <li>Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis sur « Exécuter quand même ».</li>
+          <li>L'installateur vous demande de fermer le logiciel, puis : Suivant › Installer. Vos données sont gardées (une sauvegarde est faite juste avant).</li>
+        </ol>
+      {% else %}
+        <p class="petit">Pour installer la nouvelle version, ouvrez cette page sur l'ordinateur où le logiciel est installé.</p>
+      {% endif %}
+      {% if version.disponible.notes %}<div class="notes-version"><b>Nouveautés</b><br>{{ version.disponible.notes|linebreaksbr }}</div>{% endif %}
+    {% endif %}
+  </section>
+  {% endif %}
+
+  <div class="grid-2 sauvegarde-zones">
+    <section class="carte carte-pad">
+      <h2>Restaurer une sauvegarde</h2>
+      <p class="muted petit">Remet les données telles qu'elles étaient au moment de la sauvegarde (par exemple sur un nouvel ordinateur). Les données actuelles sont remplacées ; elles sont d'abord sauvegardées.</p>
+      <form method="post" action="{% url 'stock:sauvegarde_restaurer' %}" enctype="multipart/form-data" autocomplete="off">
+        {% csrf_token %}
+        <div class="champ">
+          <label for="restaurer-nom">Sauvegarde à remettre</label>
+          <select name="nom" id="restaurer-nom">
+            <option value="">Un fichier .zip (clé USB, autre ordinateur…)</option>
+            {% for sv in sauvegardes %}<option value="{{ sv.nom }}">{{ sv.date|date:"d/m/Y" }} à {{ sv.date|date:"H:i" }} · {{ sv.libelle }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="champ">
+          <label for="restaurer-fichier">Fichier .zip</label>
+          <input type="file" name="fichier" id="restaurer-fichier" accept=".zip,application/zip">
+          <div class="aide">Seulement si vous avez choisi « Un fichier .zip » ci-dessus.</div>
+        </div>
+        <div class="champ">
+          <label for="restaurer-confirmation">Pour confirmer, tapez RESTAURER</label>
+          <input type="text" name="confirmation" id="restaurer-confirmation" autocapitalize="characters" spellcheck="false">
+        </div>
+        <button class="btn btn-orange">Restaurer</button>
+      </form>
+    </section>
+
+    <section class="carte carte-pad zone-danger">
+      <h2>Repartir de zéro</h2>
+      <p class="petit">Efface tous les articles ({{ comptes.articles }}), les bons ({{ comptes.bons }}) et l'historique, le plan du magasin, les chantiers, engins, fournisseurs et catégories.</p>
+      <p class="muted petit">Sont gardés : votre société, la licence et les comptes des utilisateurs. Une sauvegarde est faite juste avant.</p>
+      <form method="post" action="{% url 'stock:repartir_a_zero' %}" autocomplete="off">
+        {% csrf_token %}
+        <div class="champ">
+          <label for="effacer-confirmation">Pour confirmer, tapez EFFACER</label>
+          <input type="text" name="confirmation" id="effacer-confirmation" autocapitalize="characters" spellcheck="false">
+        </div>
+        <button class="btn btn-rouge">{% icone 'poubelle' %} Tout effacer</button>
+      </form>
+    </section>
+  </div>
+</main>
+{% endblock %}

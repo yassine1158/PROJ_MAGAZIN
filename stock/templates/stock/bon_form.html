@@ -19,6 +19,7 @@
 
   <form method="post" id="form-bon" autocomplete="off">
     {% csrf_token %}
+    <input type="hidden" name="jeton" value="{{ jeton }}">
     <section class="carte carte-pad" style="margin-bottom:20px">
       <h2>1. Informations</h2>
       <div class="grille-champs">

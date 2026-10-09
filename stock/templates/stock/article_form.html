@@ -4,7 +4,6 @@
 
 {% block contenu %}
 <main class="page">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div>
       {% if article %}
@@ -30,7 +29,7 @@
         <h2>Identification</h2>
         {% include 'stock/_champ.html' with champ=form.designation obligatoire=1 %}
         <div class="grille-champs">
-          {% include 'stock/_champ.html' with champ=form.code obligatoire=1 %}
+          {% include 'stock/_champ.html' with champ=form.code obligatoire=article %}
           {% include 'stock/_champ.html' with champ=form.categorie_nom obligatoire=1 %}
           {% include 'stock/_champ.html' with champ=form.unite %}
           {% include 'stock/_champ.html' with champ=form.reference_fabricant %}
@@ -65,6 +64,7 @@
             </div>
           {% endif %}
           <label style="display:flex;gap:8px;align-items:center;font-weight:500">{{ form.actif }} Article actif (décocher pour le masquer)</label>
+          {% for e in form.actif.errors %}<div class="erreur-champ">{{ e }}</div>{% endfor %}
         </section>
       </div>
     </div>
@@ -80,6 +80,7 @@
   <div class="grid-2" style="margin-top:28px">
     <section class="carte carte-pad">
       <h2>Corriger le stock</h2>
+      {% if request.user.is_staff %}
       <p class="muted petit">Après un comptage, indiquez la quantité réellement présente. La correction est gardée dans l'historique.</p>
       <form method="post" action="{% url 'stock:article_corriger' article.pk %}" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
         {% csrf_token %}
@@ -87,6 +88,9 @@
         <div style="flex:2;min-width:180px"><label for="motif">Motif</label><input id="motif" name="motif" placeholder="Ex. : inventaire de fin de mois"></div>
         <button class="btn btn-orange">Corriger</button>
       </form>
+      {% else %}
+      <p class="muted petit">Le stock compté ne correspond pas ? Prévenez un responsable : lui seul peut corriger le stock.</p>
+      {% endif %}
     </section>
     <section class="carte carte-pad">
       <h2>Derniers mouvements</h2>

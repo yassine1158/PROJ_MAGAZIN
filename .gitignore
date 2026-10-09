@@ -9,3 +9,14 @@ venv/
 build/
 *.spec.bak
 .essai
+# Fichiers propres à une installation (clés, journaux, sauvegardes)
+cle-ia.txt
+secret.key
+journal.log*
+verification.txt
+erreur-demarrage.txt
+sauvegardes/
+reseau.json
+mise-a-jour.json
+restauration-*
+sauvegarde.json

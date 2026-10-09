@@ -147,7 +147,8 @@ class Element(models.Model):
 
 class ArticleQuerySet(models.QuerySet):
     def en_alerte(self):
-        return self.filter(actif=True, stock__lte=F('stock_min'))
+        """« À commander » : articles actifs dont le seuil est renseigné et atteint."""
+        return self.filter(actif=True, stock_min__gt=0, stock__lte=F('stock_min'))
 
 
 class Article(models.Model):
@@ -165,6 +166,12 @@ class Article(models.Model):
         ('BOITE', 'Boîte'),
         ('JEU', 'Jeu'),
         ('ROUL', 'Rouleau'),
+        ('PAIRE', 'Paire'),
+        ('CARTON', 'Carton'),
+        ('PAQ', 'Paquet'),
+        ('BARRE', 'Barre'),
+        ('LOT', 'Lot'),
+        ('FEUILLE', 'Feuille'),
     ]
 
     code = models.CharField(max_length=50, unique=True)
@@ -200,7 +207,7 @@ class Article(models.Model):
 
     @property
     def en_alerte(self):
-        return self.actif and self.stock <= self.stock_min
+        return self.actif and self.stock_min > 0 and self.stock <= self.stock_min
 
     @property
     def emplacement(self):
@@ -237,6 +244,8 @@ class Bon(models.Model):
     valide_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
                                    editable=False, related_name='+', verbose_name='validé par')
     date_validation = models.DateTimeField(null=True, editable=False)
+    # Jeton du formulaire qui a créé le bon : un deuxième envoi du même formulaire ne crée pas un second bon.
+    jeton = models.CharField(max_length=32, null=True, blank=True, unique=True, editable=False)
 
     class Meta:
         abstract = True
@@ -400,6 +409,10 @@ class Parametres(models.Model):
     devise = models.CharField(max_length=10, default='FCFA')
     signataire = models.CharField('signature des bons', max_length=100, default='Le magasinier',
                                   help_text='Texte sous la case de signature, sur les bons imprimés.')
+    rccm = models.CharField('RCCM', max_length=60, blank=True,
+                            help_text='N° du registre du commerce, imprimé en haut des bons.')
+    ncc = models.CharField('N° compte contribuable (NCC)', max_length=30, blank=True)
+    masquer_prix_sortie = models.BooleanField('Ne pas imprimer les prix sur les bons de sortie', default=False)
     debut_essai = models.DateField("début de l'essai", null=True, blank=True)
     cle_licence = models.TextField("clé d'activation", blank=True)
 

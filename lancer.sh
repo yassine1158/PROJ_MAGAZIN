@@ -2,6 +2,7 @@
 # Lancement du logiciel (Linux / macOS) : ./lancer.sh
 set -e
 cd "$(dirname "$0")"
+export DJANGO_DEBUG=1  # usage local : messages d'erreur détaillés et fichiers servis par Django
 [ -d venv ] || python3 -m venv venv
 . venv/bin/activate
 pip install -q --disable-pip-version-check -r requirements.txt

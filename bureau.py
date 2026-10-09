@@ -7,6 +7,8 @@ Les données sont gardées dans %LOCALAPPDATA%\\<nom du produit> (base, photos, 
     python bureau.py           ouvre le logiciel
     python bureau.py --test    vérifie que tout démarre, sans ouvrir de fenêtre (utilisé à la construction)
 """
+import html
+import json
 import os
 import shutil
 import socket
@@ -14,12 +16,18 @@ import sys
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 from config import produit
 
 ANCIENS_DOSSIERS = ['Magasin SI BETON']  # versions précédentes : les données sont reprises
+_verrou = None  # Windows : marque « logiciel déjà ouvert » (voir instance_unique)
+
+
+class ErreurDemarrage(Exception):
+    """Message en français, affiché tel quel sur l'écran de chargement."""
 
 
 def dossier_donnees():
@@ -34,10 +42,17 @@ def dossier_donnees():
     return dossier
 
 
-def preparer(dossier):
+def preparer(dossier, afficher=lambda message: None):
     os.environ['MAGASIN_BUREAU'] = '1'
     os.environ['MAGASIN_DATA_DIR'] = str(dossier)
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+    from stock import sauvegarde
+
+    if sauvegarde.restauration_en_attente(dossier):
+        afficher('Restauration de la sauvegarde…')
+    sauvegarde.appliquer_restauration_en_attente(dossier)  # avant d'ouvrir la base
+    base = dossier / 'db.sqlite3'
+    base_existante = base.is_file() and base.stat().st_size > 0
     import django
 
     django.setup()
@@ -48,7 +63,108 @@ def preparer(dossier):
 
     executeur = MigrationExecutor(connection)
     if executeur.migration_plan(executeur.loader.graph.leaf_nodes()):  # base à créer ou à mettre à jour
+        if base_existante:
+            afficher('Mise à jour des données…')
+            try:
+                sauvegarde.sauvegarder('avant-mise-a-jour')
+            except sauvegarde.ErreurSauvegarde as e:
+                raise ErreurDemarrage(f'Les données n\'ont pas pu être sauvegardées avant la mise à jour, '
+                                      f'qui n\'a donc pas été faite.\n{e}\nLibérez de la place sur le disque '
+                                      'puis rouvrez le logiciel.') from e
         call_command(Migrate(), interactive=False, verbosity=0)
+
+
+def sauvegarde_de_fond(delai=30):
+    """Une sauvegarde par jour, faite en arrière-plan peu après l'ouverture (sans ralentir le démarrage)."""
+    time.sleep(delai)
+    try:
+        from stock import sauvegarde
+
+        sauvegarde.sauvegarde_auto()
+    except Exception:
+        import logging
+
+        logging.getLogger('stock').exception('Sauvegarde automatique impossible')
+
+
+def mises_a_jour_de_fond(delai=20):
+    """Nouvelle version publiée ? Vérifié peu après l'ouverture, au plus une fois par jour, sans rien dire hors ligne."""
+    time.sleep(delai)
+    try:
+        from stock import mises_a_jour
+
+        mises_a_jour.verifier()
+    except Exception:
+        import logging
+
+        logging.getLogger('stock').exception('Vérification des mises à jour impossible')
+
+
+def instance_unique():
+    """Windows : une seule copie du logiciel ouverte à la fois (deux copies abîmeraient la même base).
+
+    Si le logiciel est déjà ouvert, sa fenêtre est ramenée devant et on renvoie False.
+    En cas d'erreur, le logiciel s'ouvre normalement.
+    """
+    global _verrou
+    if sys.platform != 'win32':
+        return True
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        _verrou = kernel32.CreateMutexW(None, False, produit.MUTEX)  # gardé ouvert jusqu'à la fermeture
+        if ctypes.get_last_error() != 183:  # ERROR_ALREADY_EXISTS
+            return True
+    except Exception:
+        return True
+    try:
+        ramener_fenetre()
+    except Exception:
+        pass
+    return False
+
+
+def ramener_fenetre():
+    """Met devant la fenêtre du logiciel déjà ouvert (et la rouvre si elle était réduite)."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL('user32')
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    for nom in ('IsIconic', 'SetForegroundWindow'):
+        getattr(user32, nom).argtypes = [wintypes.HWND]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    classe = ctypes.create_unicode_buffer(256)
+    fenetre = None
+    while True:
+        fenetre = user32.FindWindowExW(None, fenetre, None, produit.NOM)  # comme FindWindowW, en continuant
+        if not fenetre:
+            return
+        user32.GetClassNameW(fenetre, classe, len(classe))
+        if classe.value != 'CabinetWClass':  # pas un dossier « MagaStock » ouvert dans l'Explorateur
+            break
+    if user32.IsIconic(fenetre):
+        user32.ShowWindow(fenetre, 9)  # SW_RESTORE
+    user32.SetForegroundWindow(fenetre)
+
+
+def acces_telephones():
+    """Réglages › Accès téléphones : rouvre l'accès par le Wi-Fi du magasin s'il était activé."""
+    try:
+        from config.wsgi import application
+        from stock import reseau
+
+        reseau.demarrer_si_actif(application)
+    except Exception:
+        import logging
+
+        logging.getLogger('stock').exception('Accès des téléphones impossible')
 
 
 def port_libre():
@@ -73,8 +189,8 @@ def demarrer_serveur(port):
     raise RuntimeError('Le serveur interne ne démarre pas.')
 
 
-def demarrer(dossier):
-    preparer(dossier)
+def demarrer(dossier, afficher=lambda message: None):
+    preparer(dossier, afficher)
     port = port_libre()
     return demarrer_serveur(port), f'http://127.0.0.1:{port}/'
 
@@ -98,6 +214,11 @@ def verifier(url, dossier):
     if not Article.objects.exists():
         call_command(Demo(), stdout=open(os.devnull, 'w'))
     lignes.append(f'OK exemple ({Article.objects.count()} articles)')
+    from stock import sauvegarde
+
+    archive = sauvegarde.sauvegarder('verification')
+    sauvegarde.verifier_archive(archive)
+    lignes.append(f'OK sauvegarde ({archive.stat().st_size} octets, {len(sauvegarde.lister())} au total)')
     lignes.append(f'OK PDF ({len(reponse_pdf([BonSortie.objects.first()], "test").content)} octets)')
     lignes.append(f'OK Excel ({len(exports.etat_stock(Article.objects.all()).content)} octets)')
     # Écrans après connexion (vérifie que gabarits et balises sont bien inclus dans le programme).
@@ -111,12 +232,47 @@ def verifier(url, dossier):
     client = Client()
     client.force_login(testeur)
     for chemin in ['/', '/entree/', '/sortie/', '/articles/', '/articles/nouveau/', '/bons/', '/recherche/',
-                   '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
-                   '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/activation/', '/admin/']:
+                   '/recherche/?q=filtre', '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
+                   '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/activation/', '/admin/',
+                   '/reglages/sauvegarde/', '/reglages/exemple/effacer/', '/reglages/telephones/']:
         code = client.get(chemin).status_code
         assert code == 200, f'{chemin} → {code}'
         lignes.append(f'OK écran {chemin}')
+    import ssl
+
+    from stock import mises_a_jour
+
+    fichier = settings.DATA_DIR / mises_a_jour.FICHIER
+    ancien = fichier.read_bytes() if fichier.exists() else None
+    fichier.write_text(json.dumps({'version': '999.0.0', 'url': 'https://exemple.com/MagaStock-Installation.exe',
+                                   'notes': 'Essai'}), encoding='utf-8')
+    try:
+        page = client.get('/').content.decode()
+        assert 'Nouvelle version 999.0.0' in page and 'Vérifier les mises à jour' in client.get(
+            '/reglages/sauvegarde/').content.decode(), 'carte de mise à jour absente'
+    finally:
+        if ancien is None:
+            fichier.unlink()
+        else:
+            fichier.write_bytes(ancien)
+    ssl.create_default_context()  # HTTPS disponible pour lire version.json
+    lignes.append(f'OK mises à jour ({ssl.OPENSSL_VERSION}, {produit.MAJ_URL})')
     testeur.delete()
+    from stock import reseau
+
+    lignes.append(f'OK QR code ({len(reseau.qr_svg("http://192.168.1.20:8765/"))} octets)')
+    port = reseau.demarrer()  # accès des téléphones : second serveur ouvert sur le réseau
+    try:
+        for hote, attendu in [(f'192.168.1.20:{port}', 200), ('exemple.com', 400)]:
+            requete = urllib.request.Request(f'http://127.0.0.1:{port}/connexion/', headers={'Host': hote})
+            try:
+                code = urllib.request.urlopen(requete, timeout=20).status
+            except urllib.error.HTTPError as e:
+                code = e.code
+            assert code == attendu, f'accès téléphones, {hote} → {code}'
+        lignes.append(f'OK accès téléphones (port {port})')
+    finally:
+        reseau.arreter()
     from stock import licence
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey  # noqa: F401  (clés de licence)
@@ -143,10 +299,12 @@ def ecran_chargement(message='Démarrage…', erreur=False):
       .msg{{color:{couleur};max-width:640px;white-space:pre-wrap}}
       .rond{{width:34px;height:34px;border:4px solid #dbe2ea;border-top-color:{produit.COULEUR};border-radius:50%;
              animation:t .8s linear infinite}}@keyframes t{{to{{transform:rotate(360deg)}}}}
-    </style></head><body><div class="c"><div class="nom">{produit.NOM}</div>{rond}<div class="msg">{message}</div></div></body></html>'''
+    </style></head><body><div class="c"><div class="nom">{produit.NOM}</div>{rond}<div class="msg">{html.escape(message)}</div></div></body></html>'''
 
 
 def main():
+    if '--test' not in sys.argv and not instance_unique():
+        return  # déjà ouvert : sa fenêtre a été ramenée devant
     dossier = dossier_donnees()
     if '--test' in sys.argv:
         try:
@@ -160,19 +318,34 @@ def main():
 
     import webview
 
+    try:
+        webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = True  # liens target=_blank (« Télécharger ») : navigateur
+    except Exception:
+        pass
     fenetre = webview.create_window(produit.NOM, html=ecran_chargement(), width=1400, height=900,
                                     min_size=(1000, 650), maximized=True, text_select=True, zoomable=True)
     etat = {}
 
+    def afficher(message):
+        try:
+            fenetre.load_html(ecran_chargement(message))
+        except Exception:
+            pass
+
     def en_arriere_plan():
         try:
-            etat['serveur'], url = demarrer(dossier)
+            etat['serveur'], url = demarrer(dossier, afficher)
             fenetre.load_url(url)
-        except Exception:
+            threading.Thread(target=acces_telephones, daemon=True).start()
+        except Exception as e:
             signaler(dossier, traceback.format_exc())
+            cause = f'{e}\n\n' if isinstance(e, ErreurDemarrage) else ''
             fenetre.load_html(ecran_chargement(
-                "Le logiciel n'a pas pu démarrer.\nDétails enregistrés dans :\n"
+                f"Le logiciel n'a pas pu démarrer.\n{cause}Détails enregistrés dans :\n"
                 f"{dossier / 'erreur-demarrage.txt'}", erreur=True))
+            return
+        threading.Thread(target=sauvegarde_de_fond, daemon=True).start()
+        threading.Thread(target=mises_a_jour_de_fond, daemon=True).start()
 
     icone = Path(getattr(sys, '_MEIPASS', Path(__file__).parent)) / 'bureau' / 'icone.ico'
     try:
@@ -189,6 +362,12 @@ def main():
                       'site de Microsoft) puis relancez le logiciel.', produit.NOM, 0x10)
         sys.exit(1)
     if 'serveur' in etat:
+        try:
+            from stock import reseau
+
+            reseau.arreter()
+        except Exception:
+            pass
         etat['serveur'].close()
 
 

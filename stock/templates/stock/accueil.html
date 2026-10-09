@@ -3,7 +3,6 @@
 {% block titre %}Accueil{% endblock %}
 {% block contenu %}
 <main class="page">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div>
       <h1>Bonjour {{ request.user.first_name|default:request.user.get_username }} 👋</h1>

@@ -423,3 +423,161 @@ kbd { background: var(--surface-2); border: 1px solid var(--bord); border-bottom
   .fiche .grand-lieu { font-size: 17px; }
   .vue3d .aide { display: none; }
 }
+
+/* =========================================================
+   Paquet A1 (correctifs) : nombres insécables, messages en tête de page, premier lancement
+   ========================================================= */
+table.data .num, .badge { white-space: nowrap; }
+.zone-messages { max-width: 1280px; margin: 0 auto; padding: 24px 32px 0; }
+.zone-messages .message:last-child { margin-bottom: 0; }
+.zone-messages + .page { padding-top: 20px; }
+/* Même largeur que la page qui suit (pages plus étroites ou pleine largeur). */
+.zone-messages:has(+ .page[style*="max-width:820px"]) { max-width: 820px; }
+.zone-messages:has(+ .page[style*="max-width:900px"]) { max-width: 900px; }
+.zone-messages:has(+ .page[style*="max-width:980px"]) { max-width: 980px; }
+.zone-messages:has(+ .page-large) { max-width: none; }
+@media (max-width: 900px) { .zone-messages { padding: 16px 16px 0; } .zone-messages + .page { padding-top: 16px; } }
+.case-afficher { display: flex; gap: 8px; align-items: center; font-weight: 500; margin: 8px 0 0; }
+.case-afficher input { width: auto; margin: 0; }
+
+/* =========================================================
+   Recherche d'articles : barre de recherche globale et page « Trouver un article »
+   ========================================================= */
+.recherche-globale { position: relative; display: flex; align-items: center; margin: 0 0 12px; }
+.recherche-globale svg.ic { position: absolute; left: 11px; width: 18px; height: 18px; color: var(--muted); pointer-events: none; }
+.recherche-globale input[type=search] {
+  padding: 9px 36px 9px 36px; font-size: 15px; background: var(--surface-2); border-color: transparent;
+}
+.recherche-globale input[type=search]:focus { background: var(--surface); border-color: var(--primaire); }
+.recherche-globale kbd {
+  position: absolute; right: 9px; font: 600 12px/1 Inter, system-ui, sans-serif; color: var(--muted);
+  border: 1px solid var(--bord); border-radius: 6px; padding: 3px 6px; background: var(--surface); pointer-events: none;
+}
+.recherche-globale input:focus ~ kbd, .recherche-globale input:not(:placeholder-shown) ~ kbd { display: none; }
+.barre-mobile .recherche-globale { flex: 1; min-width: 0; margin: 0; }
+@media (max-width: 900px) {
+  .sidebar .recherche-globale { display: none; }
+  .barre-mobile > img { height: 28px; max-width: 100px; }
+  .barre-mobile .recherche-globale input[type=search] { font-size: 16px; padding: 8px 8px 8px 34px; }
+  .barre-mobile .recherche-globale svg.ic { left: 10px; }
+}
+
+.ia-etat { align-items: flex-start; }
+.ia-etat .point { flex: none; margin-top: 6px; }
+.ia-etat a { font-weight: 600; }
+.barre-recherche input::placeholder { font-size: 15px; }
+.vide.attente { display: flex; gap: 10px; justify-content: center; align-items: center; }
+.attente-ia { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); }
+.attente-ia .spinner { width: 14px; height: 14px; }
+.resultat:focus-visible { outline: 3px solid var(--primaire); outline-offset: 2px; }
+.resultats-plus { text-align: center; font-size: 13px; color: var(--muted); padding: 4px 8px 12px; }
+.vue3d { scroll-margin-top: 64px; }
+.chargement-3d {
+  position: absolute; inset: 0; display: flex; gap: 10px; align-items: center; justify-content: center;
+  color: var(--muted); pointer-events: none;
+}
+.fiche-lieu { font-size: 20px; font-weight: 700; line-height: 1.25; color: var(--primaire-fonce); }
+.fiche-titre { margin-top: 4px; }
+.fiche-titre .code, .fiche .fiche-bloc { color: var(--muted); font-size: 13px; }
+.fiche-pied { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.fiche-pied a { font-weight: 600; }
+
+/* Téléphone : boutons en haut de la 3D, fiche réduite en bas (emplacement en grand sur une ligne). */
+@media (max-width: 700px) {
+  .vue3d .legende { position: static; }
+  .vue3d .outils3d { position: absolute; top: 10px; right: 10px; }
+  .vue3d .fiche { position: absolute; left: 10px; right: 10px; bottom: 10px; max-width: none; padding: 9px 12px; }
+  .fiche-lieu { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fiche-titre { margin-top: 2px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fiche .fiche-bloc, .fiche img { display: none; }
+  .fiche-pied { margin-top: 4px; font-size: 14px; }
+}
+@media (min-width: 701px) {
+  .vue3d .outils3d { flex: none; flex-direction: column; align-items: stretch; margin-left: auto; }
+  .vue3d .outils3d button { white-space: nowrap; }
+}
+
+/* ===== Système ===== */
+.bandeau-exemple { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 14px; padding: 8px 16px;
+  background: var(--orange); color: #fff; font-size: 14px; font-weight: 600; text-align: center; }
+.bandeau-exemple .btn { padding: 5px 12px; font-size: 14px; background: #fff; border-color: #fff; color: #92400e; }
+.bandeau-exemple .btn:hover { background: var(--orange-clair); }
+.bandeau-exemple .leger { font-weight: 500; opacity: .95; }
+.restauration-prete { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 18px; background: var(--orange-clair); border-color: #fbd5a5; color: #92400e; }
+.sauvegarde-infos h2 { margin-bottom: 6px; }
+.sauvegarde-infos p { margin: 0 0 12px; }
+.sauvegarde-infos p:last-child { margin-bottom: 0; }
+.sauvegarde-lieux { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 14px; margin-bottom: 12px; background: var(--surface-2); border-radius: 10px; }
+.sauvegarde-lieux .chemin { font: 600 14px ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.actions-sauvegarde { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.actions-sauvegarde form { display: flex; gap: 8px; }
+.actions-sauvegarde .btn { padding: 8px 12px; font-size: 14px; }
+.actions-sauvegarde select { width: auto; padding: 7px 10px; font-size: 14px; }
+.sauvegarde-zones { margin-top: 20px; }
+.zone-danger { border-color: #f5c2c2; }
+.zone-danger h2 { color: var(--rouge); }
+.zone-danger input[name=confirmation], .sauvegarde-zones input[name=confirmation] { max-width: 260px; }
+.liste-effacee { margin: 0 0 18px; padding-left: 20px; line-height: 1.7; }
+@media (max-width: 700px) {
+  .table-sauvegardes thead { display: none; }
+  .table-sauvegardes tr { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--bord); }
+  .table-sauvegardes tr:last-child { border-bottom: 0; }
+  table.data.table-sauvegardes td { padding: 0; border: 0; grid-row: 1; }
+  table.data.table-sauvegardes .col-type { grid-row: 2; grid-column: 1 / -1; color: var(--muted); font-size: 14px; }
+  table.data.table-sauvegardes td:last-child { grid-row: 3; grid-column: 1 / -1; padding-top: 6px; }
+  .actions-sauvegarde { justify-content: stretch; }
+  .actions-sauvegarde > * { flex: 1 1 140px; }
+  .actions-sauvegarde form .btn { flex: 1 1 auto; }
+  .page-sauvegarde .entete form, .page-sauvegarde .entete form .btn { width: 100%; }
+}
+.page-telephones .carte { margin-bottom: 18px; }
+.etat-telephones .ligne-etat { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 16px; }
+.etat-telephones .message:last-child, .page-telephones .carte > .message:last-child { margin-bottom: 0; }
+.adresse-telephones { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; }
+.adresse-telephones > div { flex: 1 1 300px; min-width: 0; }
+.adresse-telephones .qr { width: 240px; height: 240px; flex: none; background: #fff; border-radius: 10px; }
+.adresse-geante { font-size: clamp(24px, 6.5vw, 44px); font-weight: 800; line-height: 1.15; letter-spacing: -.01em;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 6px 0 10px; user-select: all; }
+.adresse-telephones p { margin: 0 0 8px; }
+.etapes-telephones { padding-left: 22px; margin: 0 0 16px; line-height: 1.6; }
+.etapes-telephones li { margin-bottom: 10px; }
+.reglage-avance { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--bord); }
+.reglage-avance summary { cursor: pointer; font-weight: 600; color: var(--muted); }
+.form-port { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.form-port .champ { flex: 1 1 220px; max-width: 360px; margin-bottom: 0; }
+@media (max-width: 700px) {
+  .adresse-telephones { flex-direction: column; align-items: stretch; text-align: center; gap: 14px; }
+  .adresse-telephones .qr { width: 200px; height: 200px; margin: 0 auto; }
+  .adresse-telephones > div { flex: none; }
+  .etat-telephones form, .etat-telephones form .btn { width: 100%; }
+  .page-telephones .btn { white-space: normal; }
+}
+.carte-maj { margin: 8px 0 10px; padding: 10px; border-color: var(--primaire); background: var(--primaire-clair);
+  box-shadow: none; font-size: 13px; flex: none; }
+.carte-maj-titre { font-weight: 700; color: var(--primaire-fonce); line-height: 1.3; margin-bottom: 8px; }
+.carte-maj-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; }
+.carte-maj .btn { width: 100%; padding: 6px 8px; font-size: 13px; }
+.carte-maj details[open], .carte-maj-actions:has(details[open]) .btn-vert { grid-column: 1 / -1; }
+.carte-maj summary { list-style: none; }
+.carte-maj summary::-webkit-details-marker { display: none; }
+.carte-maj-notes { margin-top: 8px; max-height: 40vh; overflow-y: auto; line-height: 1.45; overflow-wrap: anywhere; }
+.carte-maj-notes p { margin: 8px 0 0; color: var(--muted); }
+.version-logiciel { margin-top: 20px; }
+.version-logiciel .ligne-version { display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex-wrap: wrap; }
+.version-logiciel p { margin: 0 0 6px; }
+.version-logiciel .actions-version { display: flex; gap: 10px; flex-wrap: wrap; }
+.version-logiciel .message { margin: 12px 0 0; }
+.version-logiciel > .petit { margin: 12px 0 0; }
+.etapes-maj { margin: 12px 0 0; padding-left: 22px; line-height: 1.55; }
+.etapes-maj li { margin-bottom: 4px; }
+.version-logiciel .notes-version { margin: 12px 0 0; padding: 12px 14px; background: var(--surface-2); border-radius: 10px;
+  font-size: 14px; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .version-logiciel .actions-version, .version-logiciel .actions-version form, .version-logiciel .actions-version .btn { width: 100%; }
+  .version-logiciel .actions-version .btn { justify-content: center; }
+}

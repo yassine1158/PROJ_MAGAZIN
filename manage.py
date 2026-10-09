@@ -16,6 +16,10 @@ def main():
             "available on your PYTHONPATH environment variable? Did you "
             "forget to activate a virtual environment?"
         ) from exc
+    if sys.argv[1:2] in (['migrate'], ['runserver']) and os.environ.get('RUN_MAIN') != 'true':
+        from stock.sauvegarde import appliquer_restauration_en_attente
+
+        appliquer_restauration_en_attente()  # choisie dans Réglages › Sauvegarde, avant d'ouvrir la base
     execute_from_command_line(sys.argv)
 
 

@@ -9,6 +9,8 @@ from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect
 
+from .reseau import est_local
+
 
 def dossier_documents():
     """Documents\\<nom du produit> (créé si besoin)."""
@@ -30,9 +32,9 @@ def ouvrir_fichier(chemin):
 def livrer(request, reponse):
     """Dans la version bureau, un PDF ou un Excel est enregistré dans Documents puis ouvert directement.
 
-    Ailleurs (navigateur), la réponse est renvoyée telle quelle.
+    Ailleurs (navigateur, téléphone du magasin), la réponse est renvoyée telle quelle.
     """
-    if not settings.BUREAU:
+    if not settings.BUREAU or not est_local(request):
         return reponse
     nom = re.search(r'filename="([^"]+)"', reponse.get('Content-Disposition', ''))
     chemin = dossier_documents() / (nom.group(1) if nom else 'document')

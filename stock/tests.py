@@ -127,6 +127,17 @@ class StockTests(Base):
         self.entree(self.filtre, 1, 1000)
         self.assertNotIn(self.filtre, Article.objects.en_alerte())
 
+    def test_pas_d_alerte_sans_seuil(self):
+        # Ciment : stock 0 et seuil 0 → pas « À commander » (sinon tout le catalogue y passe au démarrage).
+        self.assertNotIn(self.ciment, Article.objects.en_alerte())
+        self.assertFalse(self.ciment.en_alerte)
+        self.filtre.refresh_from_db()
+        self.assertTrue(self.filtre.en_alerte)  # stock 0, seuil 2
+        self.filtre.actif = False
+        self.filtre.save()
+        self.assertNotIn(self.filtre, Article.objects.en_alerte())
+        self.assertFalse(self.filtre.en_alerte)
+
 
 class RechercheTests(Base):
     def test_recherche_locale_par_mot_cle_et_faute(self):
@@ -194,6 +205,7 @@ class PagesTests(Base):
         call_command('demo', stdout=io.StringIO())
         self.assertGreater(Article.objects.count(), 10)
         self.assertTrue(BonSortie.objects.filter(statut='VALIDE').exists())
+        self.assertEqual(Article.objects.get(code='EPI-GAN').unite, 'PAIRE')
 
 
 class EcransTests(Base):
@@ -578,3 +590,357 @@ class LicenceTests(TestCase):
             self.licence.lire_cle(fausse)
         self.client.post(reverse('stock:activation'), {'cle': 'nimporte.quoi'})
         self.assertEqual(Parametres.actuels().cle_licence, '')
+
+
+# =========================================================
+# Correctifs bloquants et droits
+# =========================================================
+
+class DroitsTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.magasinier = get_user_model().objects.create_user('awa', password='Magasin-2026!')
+        self.entree(self.filtre, 10, 1000)
+
+    def test_magasinier_imprime_sa_sortie(self):
+        self.client.force_login(self.magasinier)
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2']})
+        bon = BonSortie.objects.get()
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        pdf = self.client.get(reverse('stock:bon_pdf', args=['bonsortie', bon.pk]))
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf['Content-Type'], 'application/pdf')
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+
+    def test_lien_admin_ne_boucle_plus_pour_un_magasinier(self):
+        self.client.force_login(self.magasinier)
+        page = f'/admin/stock/article/{self.filtre.pk}/change/'
+        rep = self.client.get(f'/admin/login/?next={page}')
+        self.assertRedirects(rep, reverse('stock:accueil'))
+        rep = self.client.get(page, follow=True)
+        self.assertEqual(rep.status_code, 200)
+        self.assertLessEqual(len(rep.redirect_chain), 3)
+        self.assertEqual(rep.redirect_chain[-1][0], reverse('stock:accueil'))
+        self.assertContains(rep, 'Réservé aux responsables')
+        # Un responsable arrive bien dans l'administration.
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(page).status_code, 200)
+
+    def test_magasinier_ne_peut_ni_annuler_ni_corriger(self):
+        bon = services.valider(self.sortie(self.filtre, 3), self.user)
+        self.client.force_login(self.magasinier)
+        detail = self.client.get(reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertNotContains(detail, 'Annuler ce bon')
+        self.assertContains(detail, 'Imprimer')
+        rep = self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]))
+        self.assertRedirects(rep, reverse('stock:accueil'))
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, 'VALIDE')
+        fiche = self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk]))
+        self.assertNotContains(fiche, reverse('stock:article_corriger', args=[self.filtre.pk]))
+        self.assertContains(fiche, 'Prévenez un responsable')
+        rep = self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': '50'})
+        self.assertRedirects(rep, reverse('stock:accueil'))
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 7)
+
+    def test_responsable_voit_et_utilise_les_boutons(self):
+        bon = services.valider(self.sortie(self.filtre, 3), self.user)
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(reverse('stock:bon_detail', args=['sortie', bon.pk])), 'Annuler ce bon')
+        self.assertContains(self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk])),
+                            reverse('stock:article_corriger', args=[self.filtre.pk]))
+        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]))
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, 'ANNULE')
+
+
+class DoubleEnvoiTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.entree(self.filtre, 10, 1000)
+
+    def test_meme_sortie_envoyee_deux_fois(self):
+        jeton = self.client.get(reverse('stock:sortie')).context['jeton']
+        self.assertIn(jeton, self.client.session['jetons_bons'])
+        donnees = {'jeton': jeton, 'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2']}
+        premier = self.client.post(reverse('stock:sortie'), donnees)
+        second = self.client.post(reverse('stock:sortie'), donnees, follow=True)
+        bon = BonSortie.objects.get()
+        self.assertEqual(premier.url, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertRedirects(second, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertContains(second, 'déjà enregistré')
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 8)
+
+    def test_meme_entree_envoyee_deux_fois(self):
+        jeton = self.client.get(reverse('stock:entree')).context['jeton']
+        donnees = {'jeton': jeton, 'article': [self.filtre.pk], 'quantite': ['5'], 'prix': ['1000']}
+        self.client.post(reverse('stock:entree'), donnees)
+        self.client.post(reverse('stock:entree'), donnees)
+        self.assertEqual(BonEntree.objects.filter(jeton=jeton).count(), 1)
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 15)
+
+    def test_erreur_puis_correction_garde_le_meme_jeton(self):
+        jeton = self.client.get(reverse('stock:sortie')).context['jeton']
+        donnees = {'jeton': jeton, 'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['abc']}
+        rep = self.client.post(reverse('stock:sortie'), donnees)
+        self.assertEqual(rep.context['jeton'], jeton)
+        self.assertContains(rep, f'value="{jeton}"')
+        donnees['quantite'] = ['1']
+        self.client.post(reverse('stock:sortie'), donnees)
+        self.assertEqual(BonSortie.objects.get().jeton, jeton)
+
+    def test_jeton_inconnu_ignore(self):
+        self.client.post(reverse('stock:sortie'), {'jeton': 'x' * 32, 'chantier': 'Pont', 'demandeur': 'Ali',
+                                                   'article': [self.filtre.pk], 'quantite': ['1']})
+        self.assertIsNone(BonSortie.objects.get().jeton)
+
+    def test_bouton_desactive_a_l_envoi(self):
+        page = self.client.get(reverse('stock:sortie')).content.decode()
+        self.assertIn("addEventListener('submit'", page)
+        self.assertIn('Enregistrement…', page)
+
+    def test_sqlite_en_mode_immediate(self):
+        from django.db import connection
+
+        self.assertEqual(connection.settings_dict['OPTIONS']['transaction_mode'], 'IMMEDIATE')
+        self.assertEqual(connection.settings_dict['OPTIONS']['timeout'], 20)
+
+
+class SaisieNombresTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+        self.entree(self.filtre, 10, 1000)
+
+    def test_nombre_saisi(self):
+        from django.core.exceptions import ValidationError
+
+        from .forms import nombre_saisi, prix_saisi
+
+        self.assertIsNone(nombre_saisi('  '))
+        self.assertEqual(nombre_saisi('1 250,5'), Decimal('1250.5'))
+        self.assertEqual(nombre_saisi('1 250'), Decimal('1250'))
+        self.assertEqual(prix_saisi('15000000'), Decimal('15000000'))
+        refus = {
+            'abc': "n'est pas un nombre", '1e5': "n'est pas un nombre", '-3': 'négatif',
+            '0,0004': '3 chiffres après la virgule', '2000000000,5': 'trop grand',
+            '3017620422003': 'code-barres', '12345678': 'code-barres',
+        }
+        for texte, message in refus.items():
+            with self.assertRaisesMessage(ValidationError, message):
+                nombre_saisi(texte)
+        with self.assertRaisesMessage(ValidationError, '2 chiffres après la virgule'):
+            prix_saisi('10,555')
+        with self.assertRaisesMessage(ValidationError, 'trop grand'):
+            prix_saisi('1' + '0' * 17)
+
+    def test_sortie_saisies_refusees_sans_erreur_500(self):
+        cas = {'999999999999': 'code-barres', '1e20': 'est pas un nombre', '0,0004': 'chiffres après la virgule',
+               '-5': 'négatif', '0': 'plus grande que 0', '': 'plus grande que 0', '1 000 000 001': 'trop grand'}
+        for qte, message in cas.items():
+            rep = self.client.post(reverse('stock:sortie'), {
+                'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': [qte]})
+            self.assertEqual(rep.status_code, 200, qte)
+            self.assertContains(rep, message)
+            self.assertContains(rep, 'Filtre à huile Volvo')  # la ligne est réaffichée pour être corrigée
+        for identifiant in ['²', '9' * 30, 'abc']:
+            rep = self.client.post(reverse('stock:sortie'), {
+                'chantier': 'Pont', 'demandeur': 'Ali', 'article': [identifiant], 'quantite': ['1']})
+            self.assertContains(rep, 'choisissez un article')
+        self.assertFalse(BonSortie.objects.exists())
+
+    def test_entree_prix_refuse(self):
+        for prix in ['1e17', '1' + '0' * 17, '12,345', '-1']:
+            rep = self.client.post(reverse('stock:entree'), {'article': [self.filtre.pk], 'quantite': ['1'],
+                                                             'prix': [prix]})
+            self.assertEqual(rep.status_code, 200, prix)
+            self.assertContains(rep, 'prix :')
+        self.assertEqual(BonEntree.objects.count(), 1)
+
+    def test_correction_refusee(self):
+        for compte in ['1e20', '99999999999999', 'abc', '-2', '']:
+            rep = self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': compte},
+                                   follow=True)
+            self.assertEqual(rep.status_code, 200, compte)
+            self.assertContains(rep, 'Quantité comptée')
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 10)
+        self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': '7,5'})
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, Decimal('7.5'))
+
+    def test_fiche_article_saisies_refusees(self):
+        base = {'designation': 'X', 'categorie_nom': 'Filtres', 'unite': 'U', 'actif': 'on'}
+        for champ, valeur in [('stock_initial', '1e15'), ('stock_initial', '9' * 15), ('prix_initial', '1e17'),
+                              ('stock_min', 'abc'), ('stock_min', '-1'), ('niveau', '99999999999'),
+                              ('niveau', '9' * 25)]:
+            rep = self.client.post(reverse('stock:article_nouveau'), {**base, champ: valeur})
+            self.assertEqual(rep.status_code, 200, (champ, valeur))
+            self.assertTrue(rep.context['form'].errors, (champ, valeur))
+        self.assertFalse(Article.objects.filter(designation='X').exists())
+
+
+class FicheArticleTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def test_seuil_affiche_sans_zeros(self):
+        self.filtre.stock_min = Decimal('100')
+        self.filtre.save()
+        page = self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk])).content.decode()
+        self.assertIn('name="stock_min" value="100"', page)
+        self.assertNotIn('100,000', page)
+
+    def test_code_en_double_refuse_meme_casse_differente(self):
+        rep = self.client.post(reverse('stock:article_nouveau'), {
+            'code': ' fh-01 ', 'designation': 'Doublon', 'categorie_nom': 'Filtres', 'unite': 'U', 'actif': 'on'})
+        self.assertContains(rep, 'Ce code existe déjà : Filtre à huile Volvo')
+        self.assertFalse(Article.objects.filter(designation='Doublon').exists())
+        # Le même article peut garder son propre code.
+        rep = self.client.post(reverse('stock:article_modifier', args=[self.filtre.pk]), {
+            'code': 'FH-01', 'designation': 'Filtre à huile Volvo', 'categorie_nom': 'Filtres', 'unite': 'U',
+            'stock_min': '2', 'actif': 'on'})
+        self.assertRedirects(rep, reverse('stock:articles'))
+
+    def test_code_cree_automatiquement(self):
+        def creer(designation, categorie):
+            self.client.post(reverse('stock:article_nouveau'), {
+                'code': '', 'designation': designation, 'categorie_nom': categorie, 'unite': 'U', 'actif': 'on'})
+            return Article.objects.get(designation=designation).code
+
+        self.assertEqual(creer('Sable', 'Matériaux'), 'MAT-0001')
+        self.assertEqual(creer('Gravier', 'matériaux'), 'MAT-0002')
+        Article.objects.create(code='ECL-0041', designation='Lampe', categorie=self.cat)
+        self.assertEqual(creer('Projecteur', 'Éclairage'), 'ECL-0042')
+        self.assertEqual(creer('Divers', '123'), 'ART-0001')
+        page = self.client.get(reverse('stock:article_nouveau')).content.decode()
+        self.assertIn('Laissez vide', page)
+
+    def test_unite_bloquee_apres_mouvement(self):
+        donnees = {'code': 'CIM-45', 'designation': 'Ciment', 'categorie_nom': 'Matériaux', 'unite': 'KG',
+                   'stock_min': '0', 'actif': 'on'}
+        rep = self.client.post(reverse('stock:article_modifier', args=[self.ciment.pk]), donnees)
+        self.assertRedirects(rep, reverse('stock:articles'))  # aucun mouvement : changement accepté
+        self.entree(self.ciment, 5, 100)
+        page = self.client.get(reverse('stock:article_modifier', args=[self.ciment.pk]))
+        self.assertTrue(page.context['form'].fields['unite'].disabled)
+        self.assertContains(page, 'Ne peut plus changer')
+        donnees['unite'] = 'SAC'  # envoyé quand même : ignoré
+        rep = self.client.post(reverse('stock:article_modifier', args=[self.ciment.pk]), donnees)
+        self.assertRedirects(rep, reverse('stock:articles'))
+        self.ciment.refresh_from_db()
+        self.assertEqual(self.ciment.unite, 'KG')
+
+    def test_desactivation_refusee_avec_du_stock(self):
+        self.entree(self.ciment, 5, 100)
+        donnees = {'code': 'CIM-45', 'designation': 'Ciment', 'categorie_nom': 'Matériaux', 'unite': 'SAC',
+                   'stock_min': '0'}  # case « actif » décochée
+        rep = self.client.post(reverse('stock:article_modifier', args=[self.ciment.pk]), donnees)
+        self.assertContains(rep, 'mettez d&#x27;abord le stock à 0')
+        self.ciment.refresh_from_db()
+        self.assertTrue(self.ciment.actif)
+        self.client.post(reverse('stock:article_corriger', args=[self.ciment.pk]), {'stock_compte': '0'})
+        rep = self.client.post(reverse('stock:article_modifier', args=[self.ciment.pk]), donnees)
+        self.assertRedirects(rep, reverse('stock:articles'))
+        self.ciment.refresh_from_db()
+        self.assertFalse(self.ciment.actif)
+
+    def test_photo_reduite_en_jpeg(self):
+        import tempfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+
+        tampon = io.BytesIO()
+        Image.new('RGBA', (3200, 2000), (200, 30, 30, 128)).save(tampon, 'PNG')
+        donnees = {'code': 'FH-01', 'designation': 'Filtre à huile Volvo', 'categorie_nom': 'Filtres', 'unite': 'U',
+                   'stock_min': '2', 'actif': 'on'}
+        with tempfile.TemporaryDirectory() as dossier, override_settings(MEDIA_ROOT=dossier):
+            photo = SimpleUploadedFile('grande.png', tampon.getvalue(), content_type='image/png')
+            rep = self.client.post(reverse('stock:article_modifier', args=[self.filtre.pk]), {**donnees, 'photo': photo})
+            self.assertRedirects(rep, reverse('stock:articles'))
+            self.filtre.refresh_from_db()
+            self.assertTrue(self.filtre.photo.name.endswith('.jpg'))
+            with Image.open(self.filtre.photo.path) as image:
+                self.assertEqual((image.format, max(image.size)), ('JPEG', 1600))
+            with mock.patch('stock.forms.PHOTO_MAX_OCTETS', 1000):
+                photo = SimpleUploadedFile('grande.png', tampon.getvalue(), content_type='image/png')
+                rep = self.client.post(reverse('stock:article_modifier', args=[self.filtre.pk]),
+                                       {**donnees, 'photo': photo})
+                self.assertContains(rep, 'Photo trop lourde')
+
+    def test_nouvelles_unites(self):
+        unites = dict(Article.UNITES)
+        for code in ['PAIRE', 'CARTON', 'PAQ', 'BARRE', 'LOT', 'FEUILLE']:
+            self.assertIn(code, unites)
+        rep = self.client.post(reverse('stock:article_nouveau'), {
+            'designation': 'Gants cuir', 'categorie_nom': 'EPI', 'unite': 'PAIRE', 'actif': 'on'})
+        self.assertRedirects(rep, reverse('stock:articles'))
+        self.assertEqual(Article.objects.get(designation='Gants cuir').get_unite_display(), 'Paire')
+
+
+class AffichageTests(Base):
+    def test_milliers_insecables(self):
+        from .utils import nombre, quantite
+
+        self.assertEqual(nombre(2080000), '2\xa0080\xa0000')
+        self.assertEqual(quantite(Decimal('12500.500')), '12\xa0500,5')
+        self.assertEqual(quantite(Decimal('100.000')), '100')
+
+    def test_message_affiche_une_seule_fois(self):
+        self.client.force_login(self.user)
+        rep = self.client.post(reverse('stock:entree'), {'article': [self.filtre.pk], 'quantite': ['3'],
+                                                         'prix': ['100']}, follow=True)
+        self.assertEqual(rep.content.decode().count('message-success'), 1)
+        self.assertContains(rep, 'enregistrée')
+        # Les pages qui n'affichaient pas les messages les montrent maintenant (ici : l'historique).
+        self.client.post(reverse('stock:bon_annuler', args=['entree', BonEntree.objects.get().pk]))
+        self.assertContains(self.client.get(reverse('stock:bons')), 'est annulé', count=1)
+
+
+class PremierLancementErreursTests(TestCase):
+    def test_toutes_les_erreurs_de_mot_de_passe_ensemble(self):
+        rep = self.client.post(reverse('stock:bienvenue'), {'username': 'awa', 'password': '1234',
+                                                            'password2': '12345'})
+        for texte in ['pas identiques', 'trop court', 'entièrement numérique']:
+            self.assertContains(rep, texte)
+        self.assertNotContains(rep, 'value="1234"')
+        self.assertContains(rep, 'value="awa"')
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_mot_de_passe_garde_quand_il_est_bon(self):
+        rep = self.client.post(reverse('stock:bienvenue'), {'username': '', 'password': 'Magasin-2026!',
+                                                            'password2': 'Magasin-2026!'})
+        self.assertContains(rep, 'Choisissez un nom d&#x27;utilisateur')
+        self.assertContains(rep, 'value="Magasin-2026!"', count=2)
+
+
+class ReglagesSecuriteTests(TestCase):
+    def test_cle_secrete_creee_puis_reutilisee(self):
+        import tempfile
+        from pathlib import Path
+
+        from config import settings as reglages
+
+        with tempfile.TemporaryDirectory() as dossier, mock.patch.object(reglages, 'DATA_DIR', Path(dossier)):
+            cle = reglages._secret_local()
+            self.assertGreater(len(cle), 40)
+            self.assertEqual(reglages._secret_local(), cle)
+            self.assertEqual((Path(dossier) / 'secret.key').read_text().strip(), cle)
+
+    def test_page_expiree_en_francais(self):
+        from django.test import Client
+
+        user = get_user_model().objects.create_user('awa', password='Magasin-2026!')
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(user)
+        rep = client.post(reverse('stock:sortie'), {'chantier': 'X'})
+        self.assertEqual(rep.status_code, 403)
+        self.assertContains(rep, 'La page a expiré, rechargez-la', status_code=403)
+        self.assertContains(rep, "Retour à l'accueil", status_code=403)

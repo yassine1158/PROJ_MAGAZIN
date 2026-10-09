@@ -3,7 +3,6 @@
 {% block titre %}{{ bon.numero }}{% endblock %}
 {% block contenu %}
 <main class="page">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div>
       <h1>{% if type == 'entree' %}Bon d'entrée{% elif type == 'sortie' %}Bon de sortie{% else %}Inventaire{% endif %} {{ bon.numero }}</h1>
@@ -14,6 +13,7 @@
     </div>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <a class="btn" href="{% url 'stock:bon_pdf' modele bon.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Imprimer</a>
+      {% if type == 'sortie' or type == 'entree' %}<a class="btn" href="{% url 'stock:bon_pdf' modele bon.pk %}?exemplaires=2"{% if not BUREAU %} target="_blank"{% endif %} title="Deux pages : un exemplaire pour le magasin, un pour {% if type == 'sortie' %}le réceptionnaire{% else %}le livreur{% endif %}">{% icone 'imprimer' %} 2 exemplaires</a>{% endif %}
       {% if type == 'entree' %}<a class="btn btn-vert" href="{% url 'stock:entree' %}">{% icone 'plus' %} Nouvelle entrée</a>{% endif %}
       {% if type == 'sortie' %}<a class="btn btn-orange" href="{% url 'stock:sortie' %}">{% icone 'plus' %} Nouvelle sortie</a>{% endif %}
     </div>
@@ -59,7 +59,7 @@
     </table>
   </section>
 
-  {% if bon.statut == 'VALIDE' and type != 'inventaire' %}
+  {% if bon.statut == 'VALIDE' and type != 'inventaire' and request.user.is_staff %}
   <form method="post" action="{% url 'stock:bon_annuler' type bon.pk %}" style="margin-top:22px;text-align:right"
         onsubmit="return confirm('Annuler ce bon ? Le stock sera remis comme avant.')">
     {% csrf_token %}

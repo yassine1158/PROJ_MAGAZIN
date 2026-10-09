@@ -98,7 +98,7 @@ class AlerteFilter(admin.SimpleListFilter):
 
     def queryset(self, request, queryset):
         if self.value() == 'oui':
-            return queryset.filter(stock__lte=F('stock_min'))
+            return queryset.filter(stock_min__gt=0, stock__lte=F('stock_min'))
         if self.value() == 'rupture':
             return queryset.filter(stock__lte=0)
         return queryset

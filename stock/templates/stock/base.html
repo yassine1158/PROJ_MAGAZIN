@@ -17,6 +17,14 @@
       <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
       {% if SOCIETE and not LOGO_SOCIETE %}<span class="nom-societe">{{ SOCIETE }}</span>{% endif %}
     </a>
+    {% if nom != 'recherche' %}
+    <form class="recherche-globale" action="{% url 'stock:recherche' %}" method="get" role="search">
+      {% icone 'recherche' %}
+      <input type="search" name="q" placeholder="Trouver un article…" aria-label="Trouver un article" autocomplete="off"
+             enterkeyhint="search" data-raccourci-recherche>
+      <kbd title="Raccourci clavier">/</kbd>
+    </form>
+    {% endif %}
     <nav class="menu">
       <a href="{% url 'stock:accueil' %}" class="{% if nom == 'accueil' %}actif{% endif %}">{% icone 'accueil' %} Accueil</a>
       <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">{% icone 'recherche' %} Trouver un article</a>
@@ -40,10 +48,26 @@
       <a href="{% url 'stock:reglages_listes' 'chantiers' %}" class="{% if nom == 'reglages_listes' or nom == 'liste_modifier' %}actif{% endif %}">{% icone 'liste' %} Chantiers, engins…</a>
       <a href="{% url 'stock:reglages_utilisateurs' %}" class="{% if nom == 'reglages_utilisateurs' or nom == 'utilisateur_nouveau' or nom == 'utilisateur_modifier' %}actif{% endif %}">{% icone 'utilisateurs' %} Utilisateurs</a>
       <a href="{% url 'stock:reglages_societe' %}" class="{% if nom == 'reglages_societe' %}actif{% endif %}">{% icone 'parametres' %} Ma société</a>
+      <a href="{% url 'stock:reglages_sauvegarde' %}" class="{% if nom == 'reglages_sauvegarde' or nom == 'exemple_effacer' %}actif{% endif %}">{% icone 'sauvegarde' %} Sauvegarde</a>
+      <a href="{% url 'stock:reglages_telephones' %}" class="{% if nom == 'reglages_telephones' %}actif{% endif %}">{% icone 'telephone' %} Accès téléphones</a>
       <a href="{% url 'stock:reglages_ia' %}" class="{% if nom == 'reglages_ia' %}actif{% endif %}">{% icone 'cube' %} Recherche IA</a>
       {% if LICENCE %}<a href="{% url 'stock:activation' %}" class="{% if nom == 'activation' %}actif{% endif %}">{% icone 'cle' %} Licence</a>{% endif %}
       {% endif %}
     </nav>
+    {% if MISE_A_JOUR %}
+    <div class="carte carte-maj">
+      <div class="carte-maj-titre">Nouvelle version {{ MISE_A_JOUR.version }} disponible</div>
+      <div class="carte-maj-actions">
+        <a class="btn btn-vert" href="{{ MISE_A_JOUR.url }}" target="_blank" rel="noopener" title="Vos données sont gardées pendant la mise à jour">Télécharger</a>
+        {% if MISE_A_JOUR.notes %}
+        <details>
+          <summary class="btn">Nouveautés</summary>
+          <div class="carte-maj-notes">{{ MISE_A_JOUR.notes|linebreaksbr }}<p>Vos données sont gardées pendant la mise à jour.</p></div>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
     <div class="produit">{{ PRODUIT }} {{ PRODUIT_VERSION }}</div>
     <div class="pied">
       <div class="avatar">{{ request.user.get_username|first|upper }}</div>
@@ -58,10 +82,24 @@
     {% if LICENCE.mode == 'essai' %}
       <a class="bandeau-essai" href="{% url 'stock:activation' %}">Version d'essai : encore <b>{{ LICENCE.jours_restants }} jour{{ LICENCE.jours_restants|pluralize }}</b> · Activer le logiciel</a>
     {% endif %}
+    {% if EXEMPLE %}
+      <div class="bandeau-exemple">
+        <span>Magasin d'exemple : ces articles sont fictifs.</span>
+        {% if request.user.is_staff %}<a class="btn" href="{% url 'stock:exemple_effacer' %}">Effacer l'exemple et commencer</a>{% else %}<span class="leger">Prévenez votre responsable.</span>{% endif %}
+      </div>
+    {% endif %}
     <header class="barre-mobile">
       <button class="btn btn-icone" type="button" onclick="document.body.classList.toggle('menu-ouvert')" aria-label="Menu">{% icone 'menu' %}</button>
       <img src="{{ LOGO_URL }}" alt="">
+      {% if nom != 'recherche' %}
+      <form class="recherche-globale" action="{% url 'stock:recherche' %}" method="get" role="search">
+        {% icone 'recherche' %}
+        <input type="search" name="q" placeholder="Trouver un article…" aria-label="Trouver un article" autocomplete="off"
+               enterkeyhint="search" data-raccourci-recherche>
+      </form>
+      {% endif %}
     </header>
+    {% if messages %}<div class="zone-messages">{% include 'stock/_messages.html' %}</div>{% endif %}
     {% block contenu %}{% endblock %}
   </div>
 </div>
@@ -72,6 +110,35 @@
     if (document.body.classList.contains('menu-ouvert') && !e.target.closest('.sidebar, .barre-mobile')) {
       document.body.classList.remove('menu-ouvert');
     }
+  });
+  // Un seul envoi par formulaire : le bouton se grise (« Enregistrement… ») pour éviter un double clic.
+  document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (e.defaultPrevented || (form.getAttribute('method') || '').toLowerCase() !== 'post' || form.getAttribute('target') === '_blank') return;
+    const boutons = [...form.querySelectorAll('button:not([type=button]), input[type=submit]')];
+    const clique = e.submitter || boutons[0];
+    // Après coup, sinon le nom du bouton cliqué (ex. « encore ») ne serait pas envoyé.
+    setTimeout(() => {
+      boutons.forEach((b) => { b.dataset.texte ??= b.innerHTML; b.disabled = true; });
+      if (clique && clique.textContent.trim()) clique.textContent = 'Enregistrement…';
+      setTimeout(() => window.reactiverBoutons(form), 15000);  // fichier téléchargé, réseau coupé…
+    });
+  });
+  window.reactiverBoutons = (racine = document) => {
+    racine.querySelectorAll('[data-texte]').forEach((b) => { b.innerHTML = b.dataset.texte; b.disabled = false; delete b.dataset.texte; });
+  };
+  window.addEventListener('pageshow', (e) => { if (e.persisted) window.reactiverBoutons(); });  // retour arrière
+  // « / » ou Ctrl+K : curseur dans la recherche (sauf si l'on écrit déjà dans un champ).
+  document.addEventListener('keydown', (e) => {
+    const touche = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (!(touche || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) || e.defaultPrevented) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    const champ = [...document.querySelectorAll('[data-raccourci-recherche]')]
+      .find((c) => c.getClientRects().length && c.getBoundingClientRect().right > 0);
+    if (!champ) return;
+    e.preventDefault();
+    champ.focus();
+    champ.select();
   });
 </script>
 {% block scripts %}{% endblock %}

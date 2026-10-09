@@ -1,8 +1,10 @@
 @echo off
 chcp 65001 >nul
-title Magasin SI BETON
+title MagaStock
 cd /d "%~dp0"
 setlocal EnableDelayedExpansion
+rem Usage local : messages d'erreur detailles et fichiers servis par Django
+set DJANGO_DEBUG=1
 
 rem --- Python ---
 set PY=python

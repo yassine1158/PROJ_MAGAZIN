@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Page expirée</title>
+  <style>
+    html, body { margin: 0; }
+    body { background: #f3f5f7; color: #16202a; font: 16px/1.5 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { min-height: 100vh; display: grid; place-items: center; padding: 16px; box-sizing: border-box; }
+    .boite { background: #fff; border: 1px solid #e3e7eb; border-radius: 14px; box-shadow: 0 6px 20px rgba(16, 24, 40, .06);
+             padding: 32px 28px; max-width: 460px; width: 100%; box-sizing: border-box; text-align: center; }
+    .rond { width: 56px; height: 56px; border-radius: 50%; background: #fff1e0; color: #ef8a1c; display: grid; place-items: center;
+            margin: 0 auto 14px; font-size: 30px; font-weight: 700; }
+    h1 { font-size: 24px; margin: 0 0 10px; }
+    p { color: #5f6b76; margin: 0 0 22px; }
+    .boutons { display: flex; flex-direction: column; gap: 10px; }
+    .btn { display: block; padding: 14px 18px; border-radius: 10px; border: 1px solid #e3e7eb; background: #fff; color: #16202a;
+           font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+    .btn-principal { background: #2457d6; border-color: #2457d6; color: #fff; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="boite">
+      <div class="rond">!</div>
+      <h1>La page a expiré, rechargez-la</h1>
+      <p>Pour votre sécurité, ce formulaire n'est plus valable : la page est restée ouverte longtemps ou vous vous êtes
+        reconnecté entre-temps. Rien n'a été enregistré : rechargez la page puis recommencez.</p>
+      <div class="boutons">
+        <button class="btn btn-principal" type="button" onclick="location.replace(document.referrer || '/')">Recharger la page</button>
+        <a class="btn" href="/">Retour à l'accueil</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

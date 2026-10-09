@@ -1,0 +1,11 @@
+# Nouveautés de cette version : montrées dans le logiciel (bouton « Nouveautés ») et sur la page de la version.
+# Une ligne par nouveauté, en français simple. Les lignes qui commencent par # sont ignorées.
+Téléchargement direct depuis le site et avertissement quand une nouvelle version sort.
+Sauvegardes automatiques (chaque jour et avant chaque mise à jour), copie sur clé USB et restauration.
+Accès depuis les téléphones du magasin par le Wi-Fi (Réglages › Accès téléphones, avec QR code).
+Bouton pour effacer le magasin d'exemple et commencer avec vos vraies données.
+Bons imprimés plus complets : nom du réceptionnaire, montant en lettres, RCCM et NCC, numéros de page, 2 exemplaires.
+Recherche plus rapide et plus tolérante (codes sans tiret, fautes), barre de recherche sur toutes les pages (touche « / »).
+Les magasiniers peuvent imprimer leurs bons ; l'annulation et la correction du stock sont réservées aux responsables.
+Plus de double bon en cas de double clic ; quantités contrôlées (plus d'erreur avec un code-barres scanné par erreur).
+Un seul MagaStock ouvert à la fois : un second lancement ramène la fenêtre déjà ouverte.

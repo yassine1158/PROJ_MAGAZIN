@@ -3,7 +3,6 @@
 {% block titre %}Utilisateurs{% endblock %}
 {% block contenu %}
 <main class="page">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div><h1>Utilisateurs</h1><p>Qui peut se connecter au logiciel.</p></div>
     <a class="btn btn-vert" href="{% url 'stock:utilisateur_nouveau' %}">{% icone 'plus' %} Nouveau compte</a>

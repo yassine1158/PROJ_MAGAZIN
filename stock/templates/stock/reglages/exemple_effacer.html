@@ -1,0 +1,28 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Effacer l'exemple{% endblock %}
+{% block contenu %}
+<main class="page" style="max-width:760px">
+  {% include 'stock/_messages.html' %}
+  <div class="entete"><div><h1>Effacer le magasin d'exemple</h1><p>Pour commencer avec vos vraies données.</p></div></div>
+  <section class="carte carte-pad">
+    <h2>Seront effacés</h2>
+    <ul class="liste-effacee">
+      <li><b>{{ comptes.articles }}</b> article{{ comptes.articles|pluralize }} (et leurs photos)</li>
+      <li><b>{{ comptes.bons }}</b> bon{{ comptes.bons|pluralize }} et l'historique des mouvements</li>
+      <li>le plan : <b>{{ comptes.blocs }}</b> bloc{{ comptes.blocs|pluralize }}, <b>{{ comptes.etageres }}</b> étagère{{ comptes.etageres|pluralize }}, murs et objets</li>
+      <li><b>{{ comptes.categories }}</b> catégorie{{ comptes.categories|pluralize }}, <b>{{ comptes.fournisseurs }}</b> fournisseur{{ comptes.fournisseurs|pluralize }}, <b>{{ comptes.chantiers }}</b> chantier{{ comptes.chantiers|pluralize }} et <b>{{ comptes.engins }}</b> engin{{ comptes.engins|pluralize }}</li>
+    </ul>
+    <h2>Sont gardés</h2>
+    <p>Le nom et le logo de votre société, la licence et les comptes des utilisateurs.</p>
+    <div class="message message-warning">{% icone 'alerte' %}<div>Tout ce qui a été saisi depuis l'installation de l'exemple est aussi effacé. Une sauvegarde est faite juste avant, au cas où.</div></div>
+    <form method="post">
+      {% csrf_token %}
+      <div class="boutons-bas">
+        <a class="btn" href="{% url 'stock:accueil' %}">Annuler</a>
+        <button class="btn btn-rouge btn-grand">{% icone 'poubelle' %} Effacer l'exemple et commencer</button>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}

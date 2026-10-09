@@ -39,22 +39,47 @@ et la caméra s'y déplace.
 
 ## Logiciel Windows (recommandé)
 
-1. Sur GitHub, ouvrir **Releases** (colonne de droite) et télécharger **Installer-MagaStock-….exe**.
-2. Double-cliquer dessus. Si Windows affiche « Windows a protégé votre ordinateur » : *Informations
-   complémentaires* › *Exécuter quand même* (le programme n'est pas signé numériquement).
+1. Télécharger **MagaStock-Installation.exe** depuis le site (bouton « Essai gratuit ») ou par le lien direct,
+   qui donne toujours la dernière version :
+   https://github.com/yassine1158/PROJ_MAGAZIN/releases/latest/download/MagaStock-Installation.exe
+2. L'ouvrir. Si Windows affiche « Windows a protégé votre ordinateur » : *Informations complémentaires* ›
+   *Exécuter quand même* (le programme n'est pas signé numériquement). Puis *Suivant* › *Installer*.
 3. Ouvrir **MagaStock** depuis l'icône du bureau. Au premier lancement : nom et logo de la société, puis compte du responsable.
 
 - Le logiciel s'ouvre dans sa propre fenêtre, sans navigateur, et fonctionne sans internet.
-- Les données sont dans `%LOCALAPPDATA%\MagaStock` (base `db.sqlite3`, photos). Pour une **sauvegarde**,
-  copier ce dossier. Elles sont gardées lors d'une mise à jour ou d'une désinstallation.
+- Les données sont dans `%LOCALAPPDATA%\MagaStock` (base `db.sqlite3`, photos). Elles sont gardées lors d'une
+  mise à jour ou d'une désinstallation.
+- **Sauvegarde** (*Réglages › Sauvegarde*) : une copie automatique chaque jour et avant chaque mise à jour, dans
+  `%LOCALAPPDATA%\MagaStock\sauvegardes` (les 10 dernières + une par mois sur un an). Boutons « Sauvegarder
+  maintenant », « Copier sur la clé USB », « Télécharger » et « Restaurer une sauvegarde » (remise en place à la
+  réouverture du logiciel, après une copie de l'état actuel). « Repartir de zéro » efface articles, bons et plan
+  mais garde la société, la licence et les comptes ; le bandeau orange « Magasin d'exemple » propose la même chose.
 - Les PDF et fichiers Excel sont enregistrés dans `Documents\MagaStock` et s'ouvrent directement.
+- **Téléphones du magasin** (*Réglages › Accès téléphones*, désactivé par défaut, à régler depuis le PC) : le
+  logiciel s'ouvre aussi sur le Wi-Fi du magasin, à l'adresse affichée en gros avec un QR code
+  (ex. `http://192.168.1.20:8765/`, port réglable). Chaque personne se connecte avec son compte. Windows demande
+  la première fois d'autoriser l'accès au réseau : cocher « Réseaux privés ». Seules les adresses du réseau local
+  sont acceptées ; un téléphone reçoit les PDF et Excel au lieu de les ouvrir sur le PC.
 - Recherche IA : menu *Réglages › Recherche IA*, coller la clé.
-- Nécessite Windows 10 ou 11 (avec « Microsoft Edge WebView2 Runtime », déjà présent sur la plupart des PC).
+- Une seule copie du logiciel s'ouvre à la fois : un second double-clic ramène la fenêtre déjà ouverte.
+- **Nouvelles versions** : le logiciel vérifie une fois par jour (quand le PC a internet, sans rien dire sinon) et
+  affiche aux responsables « Nouvelle version X disponible » sous le menu, avec *Télécharger* et *Nouveautés*.
+  Bouton « Vérifier les mises à jour » dans *Réglages › Sauvegarde*. Pour mettre à jour : télécharger, ouvrir le
+  fichier ; l'installateur demande de fermer le logiciel, et les données sont gardées.
+- Nécessite Windows 10 ou 11 avec « Microsoft Edge WebView2 Runtime » (déjà présent sur la plupart des PC ;
+  l'installateur l'installe s'il manque et si le PC a internet).
 
-**Publier une nouvelle version :** sur GitHub, onglet *Actions* › *Logiciel Windows* › *Run workflow*, indiquer
-le numéro (ex. `1.1.0`). GitHub construit le programme sur Windows, le vérifie et met l'installateur dans *Releases*
-(pousser un tag `vX.Y.Z` fonctionne aussi)
-(fichiers : `bureau.py`, `bureau/`, `.github/workflows/windows.yml`).
+**Publier une nouvelle version :**
+1. Dans `config/produit.py`, mettre `VERSION` au nouveau numéro (ex. `1.5.0`) ; écrire les nouveautés dans
+   `bureau/nouveautes.txt` (une ligne par nouveauté, montrées dans le logiciel).
+2. Sur GitHub, onglet *Actions* › *Logiciel Windows* › *Run workflow*, indiquer le même numéro (ou pousser un tag
+   `v1.5.0`). La construction refuse un numéro différent de `VERSION`.
+3. GitHub construit le programme sur Windows, le vérifie et publie dans *Releases* `MagaStock-Installation.exe`
+   (nom fixe) et `version.json` (lu par les logiciels installés pour annoncer la version). Cette version devient la
+   « dernière » : le lien direct ci-dessus la donne aussitôt. Ne pas publier de release à la main sans ces deux
+   fichiers, sinon le lien direct ne fonctionne plus.
+
+(fichiers : `bureau.py`, `bureau/`, `stock/mises_a_jour.py`, `.github/workflows/windows.yml`).
 
 ## Démarrage rapide sans installateur (Windows)
 

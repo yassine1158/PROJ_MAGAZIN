@@ -3,7 +3,6 @@
 {% block titre %}{{ titre }}{% endblock %}
 {% block contenu %}
 <main class="page" style="max-width:900px">
-  {% include 'stock/_messages.html' %}
   <div class="entete"><div><h1>{{ titre }}</h1>{% if sous_titre %}<p>{{ sous_titre }}</p>{% endif %}</div></div>
   {% if form.non_field_errors %}<div class="message message-error">{% icone 'alerte' %}<div>{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
   <form method="post" enctype="multipart/form-data" class="carte carte-pad" autocomplete="off">

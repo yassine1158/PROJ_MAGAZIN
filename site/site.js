@@ -20,6 +20,21 @@
     if (textes[cle]) a.textContent = textes[cle];
   });
   document.querySelectorAll('[data-masquer-si]').forEach(el => { if (liens[el.dataset.masquerSi]) el.remove(); });
+
+  // Lien direct …/releases/latest/download/<fichier> : si la dernière version publiée n'a pas encore ce
+  // fichier (versions d'avant le nom fixe), on donne directement son installateur .exe, sans page GitHub.
+  const direct = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/releases\/latest\/download\/([^/?#]+)$/.exec(c.telechargement || '');
+  if (direct && window.fetch) {
+    fetch(`https://api.github.com/repos/${direct[1]}/releases/latest`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(version => {
+        const fichiers = (version && version.assets) || [];
+        if (fichiers.some(f => f.name === direct[2])) return;
+        const exe = fichiers.find(f => /\.exe$/i.test(f.name) && /^https:\/\/github\.com\//.test(f.browser_download_url));
+        if (exe) document.querySelectorAll('[data-lien="telechargement"]').forEach(a => { a.href = exe.browser_download_url; });
+      })
+      .catch(() => {});
+  }
   if (c.prix) document.querySelectorAll('[data-prix]').forEach(el => { el.textContent = c.prix; });
   if (c.essaiJours) document.querySelectorAll('[data-essai]').forEach(el => { el.textContent = c.essaiJours; });
   document.getElementById('annee').textContent = new Date().getFullYear();
