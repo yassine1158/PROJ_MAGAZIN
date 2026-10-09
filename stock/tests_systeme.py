@@ -669,7 +669,9 @@ class ReseauMiddlewareTests(AvecDossier, TestCase):
         def demande(chemin, utilisateur, **meta):
             requete = RequestFactory().get('/media/' + chemin, **meta)
             requete.user = utilisateur
-            return reseau.media(requete, chemin)
+            reponse = reseau.media(requete, chemin)
+            reponse.close()  # sinon Windows garde le fichier ouvert et refuse de vider le dossier temporaire
+            return reponse
 
         self.assertEqual(demande('articles/filtre.jpg', AnonymousUser()).status_code, 200)  # sur l'ordinateur
         self.assertEqual(demande('articles/filtre.jpg', self.responsable, **TELEPHONE).status_code, 200)
