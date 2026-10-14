@@ -15,13 +15,13 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 
 from config import produit
 
-from . import mises_a_jour, reseau, sauvegarde
-from .models import Article, BonEntree, Categorie, Parametres
+from . import assistance, licence, mises_a_jour, reseau, sauvegarde, services
+from .models import Article, BonEntree, Categorie, LigneEntree, MouvementStock, Parametres
 
 
 def base_minimale(chemin, marque='actuelle'):
@@ -1014,7 +1014,7 @@ class MiseAJourEcransTests(AvecDossier, TestCase):
         self.magasinier = Utilisateur.objects.create_user('ali', password='motdepasse-solide')
         self.client.force_login(self.responsable)
         self.enterContext(override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver']))
-        self.page = reverse('stock:reglages_sauvegarde')
+        self.page = reverse('stock:aide')
         self.verifier = reverse('stock:mise_a_jour_verifier')
 
     def ecrire(self, **etat):
@@ -1047,8 +1047,9 @@ class MiseAJourEcransTests(AvecDossier, TestCase):
         self.assertContains(rep, 'Version du logiciel')
         self.assertContains(rep, f'Version installée : <b>{produit.NOM} {produit.VERSION}</b>')
         self.assertContains(rep, f'action="{self.verifier}"')
-        self.assertContains(rep, 'Vérifier les mises à jour')
+        self.assertContains(rep, 'Vérifier les mises à jour</button>')
         self.assertContains(rep, 'csrfmiddlewaretoken')
+        self.assertNotContains(self.client.get(reverse('stock:reglages_sauvegarde')), f'action="{self.verifier}"')
         self.assertEqual(self.client.get(self.verifier).status_code, 405)
         with mock.patch('urllib.request.urlopen', return_value=reponse(version_json())) as urlopen:
             rep = self.client.post(self.verifier)
@@ -1077,7 +1078,633 @@ class MiseAJourEcransTests(AvecDossier, TestCase):
             self.assertRedirects(self.client.post(self.verifier), reverse('stock:accueil'))
             self.client.force_login(self.responsable)
             with override_settings(BUREAU=False):
-                self.assertNotContains(self.client.get(self.page), 'Vérifier les mises à jour')
+                self.assertNotContains(self.client.get(self.page), f'action="{self.verifier}"')
                 rep = self.client.post(self.verifier, follow=True)
                 self.assertContains(rep, 'logiciel installé sur Windows')
         urlopen.assert_not_called()
+
+
+# =========================================================
+# Licence : horloge reculée, copie commune, écran Licence
+# =========================================================
+
+class AvecLicence(AvecDossier):
+    """Verrouillage actif (clé de test), copie commune du début d'essai (ProgramData) et date du jour réglable."""
+
+    def setUp(self):
+        super().setUp()
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        self.privee = Ed25519PrivateKey.generate()
+        publique = self.privee.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+        self.commun = self.autre_dossier() / 'ProgramData' / produit.NOM / '.essai'
+        self.enterContext(mock.patch('config.produit.CLE_PUBLIQUE', licence._b64(publique)))
+        self.enterContext(mock.patch.object(licence, 'code_machine', return_value='AAAA-1111'))
+        self.enterContext(override_settings(ESSAI_COMMUN=self.commun))
+        self.horloge = self.enterContext(mock.patch.object(licence, '_aujourdhui', return_value=date(2026, 10, 9)))
+        licence._ecriture_impossible.clear()
+
+    def regler_horloge(self, jour):
+        self.horloge.return_value = jour
+
+    def ecrire_essai(self, contenu):
+        (self.dossier / '.essai').write_text(contenu)
+
+    def essai(self):
+        return (self.dossier / '.essai').read_text()
+
+
+class LicenceEssaiTests(AvecLicence, TestCase):
+    def test_premier_lancement(self):
+        etat = licence.etat()
+        self.assertEqual((etat.mode, etat.jours_restants, etat.date_incorrecte), ('essai', 30, False))
+        self.assertEqual(self.essai(), '2026-10-09;2026-10-09')
+        self.assertEqual(self.commun.read_text(), '2026-10-09;2026-10-09')  # dossier commun créé
+        self.assertEqual(Parametres.actuels().debut_essai, date(2026, 10, 9))
+
+    def test_ancien_format_lu_puis_complete(self):
+        self.ecrire_essai('2026-09-29')
+        etat = licence.etat()
+        self.assertEqual((etat.mode, etat.jours_restants), ('essai', 20))
+        self.assertEqual(self.essai(), '2026-09-29;2026-10-09')
+
+    def test_fichier_abime(self):
+        self.ecrire_essai('n\'importe quoi;2026-13-45')
+        self.assertEqual(licence.etat().jours_restants, 30)
+        self.assertEqual(self.essai(), '2026-10-09;2026-10-09')
+
+    def test_horloge_reculee_ne_rend_pas_de_jours(self):
+        self.ecrire_essai('2026-09-29;2026-10-09')
+        self.regler_horloge(date(2026, 9, 1))
+        etat = licence.etat()
+        self.assertEqual((etat.mode, etat.jours_restants, etat.date_incorrecte), ('essai', 20, True))
+        self.assertEqual(self.essai(), '2026-09-29;2026-10-09')  # la dernière date vue ne recule jamais
+        self.regler_horloge(date(2026, 10, 12))  # date corrigée
+        etat = licence.etat()
+        self.assertEqual((etat.jours_restants, etat.date_incorrecte), (17, False))
+        self.assertEqual(self.essai(), '2026-09-29;2026-10-12')
+
+    def test_horloge_reculee_apres_la_fin_de_l_essai(self):
+        self.ecrire_essai('2026-09-01;2026-10-09')
+        self.assertTrue(licence.etat().bloque)
+        self.regler_horloge(date(2026, 9, 10))
+        etat = licence.etat()
+        self.assertTrue(etat.bloque)
+        self.assertTrue(etat.date_incorrecte)
+
+    def test_un_jour_d_ecart_tolere(self):
+        self.ecrire_essai('2026-10-01;2026-10-09')
+        self.regler_horloge(date(2026, 10, 8))  # fuseau horaire, minuit…
+        self.assertFalse(licence.etat().date_incorrecte)
+        self.regler_horloge(date(2026, 10, 7))
+        self.assertTrue(licence.etat().date_incorrecte)
+
+    def test_fichiers_mis_a_jour_une_fois_par_jour(self):
+        with mock.patch.object(Path, 'write_text', autospec=True, side_effect=Path.write_text) as ecriture:
+            licence.etat()
+            self.assertEqual(ecriture.call_count, 2)  # dossier de données et copie commune
+            licence.etat()
+            licence.debut_essai()
+            self.assertEqual(ecriture.call_count, 2)  # même jour : rien n'est réécrit
+            self.regler_horloge(date(2026, 10, 10))
+            licence.etat()
+            self.assertEqual(ecriture.call_count, 4)
+        self.assertEqual(self.essai(), '2026-10-09;2026-10-10')
+        self.assertEqual(self.commun.read_text(), '2026-10-09;2026-10-10')
+
+    def test_nouveau_compte_windows(self):
+        """Dossier de données vide (autre compte Windows) : la copie commune garde le début de l'essai."""
+        self.commun.parent.mkdir(parents=True)
+        self.commun.write_text('2026-08-01;2026-09-15')
+        self.assertTrue(licence.etat().bloque)
+        self.assertEqual(self.essai(), '2026-08-01;2026-10-09')
+        self.assertEqual(Parametres.actuels().debut_essai, date(2026, 8, 1))
+
+    def test_le_plus_ancien_debut_compte(self):
+        p = Parametres.actuels()
+        p.debut_essai = date(2026, 9, 20)
+        p.save()
+        self.ecrire_essai('2026-10-01;2026-10-09')
+        self.commun.parent.mkdir(parents=True)
+        self.commun.write_text('2026-09-25')
+        self.assertEqual(licence.debut_essai(), date(2026, 9, 20))
+        self.assertEqual(self.commun.read_text(), '2026-09-20;2026-10-09')
+
+    def test_copie_commune_impossible_a_ecrire(self):
+        (self.dossier / 'fichier').write_text('')
+        with override_settings(ESSAI_COMMUN=self.dossier / 'fichier' / '.essai'):  # dossier impossible à créer
+            etat = licence.etat()
+            self.assertEqual((etat.mode, etat.jours_restants), ('essai', 30))
+            with mock.patch.object(Path, 'mkdir', autospec=True, side_effect=Path.mkdir) as creation:
+                licence.etat()
+            creation.assert_not_called()  # pas de nouvel essai le même jour
+        self.assertEqual(self.essai(), '2026-10-09;2026-10-09')
+
+    def test_ordinateur_active_reste_active(self):
+        p = Parametres.actuels()
+        p.cle_licence = licence.signer(self.privee, 'Client Test', 'AAAA-1111')
+        p.debut_essai = date(2025, 1, 1)
+        p.save()
+        self.ecrire_essai('2025-01-01;2026-10-09')
+        self.regler_horloge(date(2026, 1, 1))
+        etat = licence.etat()
+        self.assertEqual((etat.mode, etat.client, etat.date_incorrecte), ('active', 'Client Test', False))
+
+    def test_sans_cle_publique_rien_n_est_ecrit(self):
+        with mock.patch('config.produit.CLE_PUBLIQUE', ''):
+            self.assertEqual(licence.etat().mode, 'libre')
+        self.assertFalse((self.dossier / '.essai').exists())
+        self.assertFalse(self.commun.exists())
+
+    def test_reglage_par_defaut_hors_windows(self):
+        from django.conf import settings
+
+        with override_settings():
+            del settings.ESSAI_COMMUN
+            self.assertEqual(licence._fichiers_essai(), [self.dossier / '.essai'])
+
+
+CONTACTS = {'WHATSAPP': '2250700000000', 'TELEPHONE_VENDEUR': '+225 27 22 00 00 00',
+            'EMAIL_VENDEUR': 'vente@exemple.ci'}
+
+
+class EcranLicenceTests(AvecLicence, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.responsable = get_user_model().objects.create_user('chef', password='motdepasse-solide', is_staff=True)
+        self.client.force_login(self.responsable)
+        self.url = reverse('stock:activation')
+
+    def contacts(self):
+        self.enterContext(mock.patch.multiple('config.produit', **CONTACTS))
+
+    def test_contacts_et_numero_en_clair(self):
+        self.contacts()
+        rep = self.client.get(self.url)
+        self.assertContains(rep, 'Contact du vendeur')
+        self.assertContains(rep, 'par WhatsApp au <b class="numero-clair">+225 07 00 00 00 00</b>')
+        self.assertContains(rep, 'href="https://wa.me/2250700000000?text=Bonjour')
+        self.assertContains(rep, 'href="tel:+2252722000000"')
+        self.assertContains(rep, '+225 27 22 00 00 00')
+        self.assertContains(rep, 'href="mailto:vente@exemple.ci"')
+        self.assertContains(rep, 'le vendeur vous donne le numéro')
+        self.assertContains(rep, 'id="copier-code" data-code="AAAA-1111"')
+        self.assertNotContains(rep, 'Se déconnecter')  # essai en cours
+
+    def test_sans_contacts(self):
+        rep = self.client.get(self.url)
+        self.assertNotContains(rep, 'Contact du vendeur')
+        self.assertContains(rep, 'par Wave.')
+        self.assertContains(rep, 'Copier le code')
+        self.assertContains(rep, 'csrfmiddlewaretoken')
+
+    def test_essai_termine(self):
+        self.ecrire_essai('2026-08-01;2026-10-09')
+        self.assertRedirects(self.client.get('/articles/'), self.url)
+        rep = self.client.get(self.url)
+        self.assertContains(rep, "L'essai gratuit est terminé")
+        self.assertContains(rep, f'action="{reverse("stock:deconnexion")}"')
+        self.assertContains(rep, 'Se déconnecter')
+        self.assertContains(rep, f'href="{reverse("stock:aide")}#licence"')
+        self.assertEqual(self.client.get(reverse('stock:aide')).status_code, 200)  # l'aide reste ouverte
+        self.client.post(reverse('stock:deconnexion'))
+        rep = self.client.get(self.url)
+        self.assertContains(rep, "L'essai gratuit est terminé")
+        self.assertNotContains(rep, 'Se déconnecter')  # personne n'est connecté
+
+    def test_date_incorrecte(self):
+        self.ecrire_essai('2026-10-01;2026-10-09')
+        self.regler_horloge(date(2026, 9, 1))
+        self.assertContains(self.client.get(self.url), 'La date de cet ordinateur semble incorrecte')
+        self.regler_horloge(date(2026, 10, 9))
+        self.assertNotContains(self.client.get(self.url), 'semble incorrecte')
+
+    def test_mode_libre_sans_paiement(self):
+        self.contacts()
+        with mock.patch('config.produit.CLE_PUBLIQUE', ''):
+            rep = self.client.get(self.url)
+        self.assertContains(rep, "n'a pas besoin de clé d'activation")
+        self.assertNotContains(rep, 'Payez')
+        self.assertNotContains(rep, 'name="cle"')
+        self.assertContains(rep, 'Contact du vendeur')
+
+    def test_logiciel_active(self):
+        self.contacts()
+        p = Parametres.actuels()
+        p.cle_licence = licence.signer(self.privee, 'BTP Abidjan', 'AAAA-1111')
+        p.save()
+        rep = self.client.get(self.url)
+        self.assertContains(rep, 'Logiciel activé')
+        self.assertNotContains(rep, 'Payez')
+        self.assertContains(rep, 'Contact du vendeur')
+
+
+class AssistanceTests(SimpleTestCase):
+    def test_numero_lisible(self):
+        self.assertEqual(assistance.numero_lisible('2250700000000'), '+225 07 00 00 00 00')
+        self.assertEqual(assistance.numero_lisible('+225 07-00-00-00-00'), '+225 07 00 00 00 00')
+        self.assertEqual(assistance.numero_lisible('33612345678'), '+33612345678')
+        self.assertEqual(assistance.numero_lisible(''), '')
+
+    def test_contacts_seulement_renseignes(self):
+        with mock.patch.multiple('config.produit', WHATSAPP='', TELEPHONE_VENDEUR='', EMAIL_VENDEUR=''):
+            self.assertEqual(assistance.contacts(), [])
+            self.assertEqual(assistance.lien_whatsapp('Bonjour'), '')
+        with mock.patch.multiple('config.produit', WHATSAPP='+225 07 00 00 00 00', TELEPHONE_VENDEUR='',
+                                 EMAIL_VENDEUR='a@b.ci'):
+            self.assertEqual([c['nom'] for c in assistance.contacts()], ['WhatsApp', 'E-mail'])
+            self.assertEqual(assistance.lien_whatsapp('Bonjour à tous'),
+                             'https://wa.me/2250700000000?text=Bonjour%20%C3%A0%20tous')
+
+
+# =========================================================
+# Aide
+# =========================================================
+
+ANCRES_AIDE = ['premiers-pas', 'trouver', 'entree', 'sortie', 'annuler', 'corriger', 'inventaire', 'import',
+               'etiquettes', 'utilisateurs', 'sauvegarde', 'telephones', 'mises-a-jour', 'licence']
+
+
+class AideTests(AvecDossier, TestCase):
+    def setUp(self):
+        super().setUp()
+        Utilisateur = get_user_model()
+        self.responsable = Utilisateur.objects.create_user('chef', password='motdepasse-solide', is_staff=True)
+        self.magasinier = Utilisateur.objects.create_user('ali', password='motdepasse-solide')
+        self.url = reverse('stock:aide')
+
+    def test_connexion_obligatoire(self):
+        self.assertRedirects(self.client.get(self.url), f"{reverse('stock:connexion')}?next={self.url}")
+
+    def test_page_pour_tous(self):
+        self.client.force_login(self.magasinier)
+        rep = self.client.get(self.url)
+        for ancre in ANCRES_AIDE:
+            self.assertContains(rep, f'id="{ancre}"')
+            self.assertContains(rep, f'href="#{ancre}"')
+        self.assertContains(rep, f'Version installée : <b>{produit.NOM} {produit.VERSION}</b>')
+        self.assertContains(rep, f'href="{produit.SITE_WEB}"')
+        self.assertNotContains(rep, 'https://wa.me/')  # aucun numéro configuré
+        self.assertNotContains(rep, 'Préparer un rapport')
+        self.assertNotContains(rep, reverse('stock:mise_a_jour_verifier'))
+        self.assertContains(self.client.get('/'), f'href="{self.url}"')  # lien « Aide » du menu
+
+    def test_bouton_whatsapp(self):
+        self.client.force_login(self.magasinier)
+        with mock.patch('config.produit.WHATSAPP', '2250700000000'):
+            rep = self.client.get(self.url)
+        self.assertContains(rep, "Écrire à l'assistance sur WhatsApp")
+        self.assertContains(rep, 'href="https://wa.me/2250700000000?text=Bonjour')
+        self.assertContains(rep, '+225 07 00 00 00 00')
+
+    def test_responsable_version_web(self):
+        self.client.force_login(self.responsable)
+        rep = self.client.get(self.url)
+        self.assertNotContains(rep, 'Dossier des données')
+        self.assertNotContains(rep, 'Préparer un rapport')
+
+    @override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+    def test_responsable_version_bureau(self):
+        self.client.force_login(self.responsable)
+        rep = self.client.get(self.url)
+        self.assertContains(rep, 'Dossier des données')
+        self.assertContains(rep, str(self.dossier))
+        for vue in ('aide_dossier', 'aide_rapport', 'mise_a_jour_verifier'):
+            self.assertContains(rep, f'action="{reverse("stock:" + vue)}"')
+        self.client.force_login(self.magasinier)
+        self.assertNotContains(self.client.get(self.url), 'Dossier des données')
+
+    @override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+    def test_ouvrir_le_dossier(self):
+        url = reverse('stock:aide_dossier')
+        self.client.force_login(self.magasinier)
+        with mock.patch('stock.views_systeme.ouvrir_fichier') as ouvrir:
+            self.assertRedirects(self.client.post(url), reverse('stock:accueil'))
+            self.client.force_login(self.responsable)
+            self.assertEqual(self.client.get(url).status_code, 405)
+            self.assertRedirects(self.client.post(url), self.url + '#assistance', fetch_redirect_response=False)
+            ouvrir.assert_called_once_with(self.dossier)
+            ouvrir.side_effect = OSError
+            self.assertContains(self.client.post(url, follow=True), 'pas pu être ouvert')
+            with mock.patch('stock.reseau.est_actif', return_value=True):
+                self.assertContains(self.client.post(url, follow=True, **TELEPHONE), 'disponible seulement sur')
+            with override_settings(BUREAU=False):
+                self.assertContains(self.client.post(url, follow=True), 'seulement dans le logiciel installé')
+        self.assertEqual(ouvrir.call_count, 2)
+
+    @override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+    def test_rapport_pour_l_assistance(self):
+        (self.dossier / 'journal.log').write_text('ERROR panne', encoding='utf-8')
+        (self.dossier / 'erreur-demarrage.txt').write_text('Traceback', encoding='utf-8')
+        (self.dossier / 'secret.key').write_text('secret')
+        (self.dossier / 'cle-ia.txt').write_text('sk-ant-secret')
+        self.client.force_login(self.responsable)
+        with mock.patch('stock.bureau.Path.home', return_value=self.dossier), \
+                mock.patch('stock.bureau.ouvrir_fichier') as ouvrir:
+            rep = self.client.post(reverse('stock:aide_rapport'), HTTP_REFERER=self.url)
+        self.assertRedirects(rep, self.url, fetch_redirect_response=False)
+        chemin = ouvrir.call_args[0][0]
+        self.assertTrue(chemin.name.startswith('rapport-assistance-') and chemin.suffix == '.zip')
+        with zipfile.ZipFile(chemin) as archive:
+            self.assertEqual(sorted(archive.namelist()), ['erreur-demarrage.txt', 'informations.txt', 'journal.log'])
+            infos = archive.read('informations.txt').decode()
+        for texte in (f'{produit.NOM} {produit.VERSION}', 'Système : ', 'Python : ', 'Articles : 0',
+                      'Code de l\'ordinateur : '):
+            self.assertIn(texte, infos)
+        with mock.patch('stock.reseau.est_actif', return_value=True):
+            rep = self.client.post(reverse('stock:aide_rapport'), **TELEPHONE)
+        self.assertEqual(rep['Content-Type'], 'application/zip')  # téléphone : le fichier est téléchargé
+
+    def test_rapport_reserve(self):
+        url = reverse('stock:aide_rapport')
+        self.client.force_login(self.magasinier)
+        self.assertRedirects(self.client.post(url), reverse('stock:accueil'))
+        self.client.force_login(self.responsable)
+        self.assertEqual(self.client.get(url).status_code, 405)
+        self.assertContains(self.client.post(url, follow=True), 'seulement dans le logiciel installé')
+
+    @override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+    def test_rapport_impossible(self):
+        self.client.force_login(self.responsable)
+        with mock.patch.object(assistance, 'rapport', side_effect=RuntimeError('panne')), \
+                self.assertLogs('stock', 'ERROR'):
+            rep = self.client.post(reverse('stock:aide_rapport'), follow=True)
+        self.assertContains(rep, 'pas pu être préparé')
+
+    def test_informations_sans_base_lisible(self):
+        with mock.patch.object(Article.objects, 'count', side_effect=RuntimeError('base abîmée')):
+            infos = assistance.informations()
+        self.assertIn('Données illisibles', infos)
+        self.assertIn(produit.VERSION, infos)
+
+
+# =========================================================
+# Fichiers enregistrés et ouverts sur l'ordinateur (livrer)
+# =========================================================
+
+@override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+class LivrerTests(AvecDossier, TestCase):
+    def setUp(self):
+        super().setUp()
+        from django.utils import timezone
+
+        self.chef = get_user_model().objects.create_superuser('chef', 'chef@exemple.ci', 'motdepasse-solide')
+        self.client.force_login(self.chef)
+        self.enterContext(mock.patch('stock.bureau.Path.home', return_value=self.dossier))
+        self.ouvrir = self.enterContext(mock.patch('stock.bureau.ouvrir_fichier'))
+        self.documents = self.dossier / produit.NOM
+        self.nom = f'etat_stock_{timezone.localdate():%Y-%m-%d}.xlsx'
+
+    def verrouiller(self, *noms):
+        """Fichiers ouverts dans Excel : Windows refuse de les remplacer."""
+        self.documents.mkdir(parents=True, exist_ok=True)
+        for nom in noms:
+            (self.documents / nom).write_bytes(b'ouvert')
+        ecrire = Path.write_bytes
+
+        def write_bytes(chemin, contenu):
+            if chemin.name in noms:
+                raise PermissionError(13, 'Accès refusé', str(chemin))
+            return ecrire(chemin, contenu)
+        return mock.patch.object(Path, 'write_bytes', autospec=True, side_effect=write_bytes)
+
+    def exporter(self):
+        from django.contrib.messages import get_messages
+
+        rep = self.client.get('/articles/?format=excel', HTTP_REFERER='/articles/')
+        self.assertRedirects(rep, '/articles/', fetch_redirect_response=False)
+        return ' '.join(str(m) for m in get_messages(rep.wsgi_request))
+
+    def test_fichier_ouvert_nom_suivant(self):
+        with self.verrouiller(self.nom):
+            message = self.exporter()
+        chemin = self.ouvrir.call_args[0][0]
+        self.assertEqual(chemin.name, self.nom.replace('.xlsx', ' (2).xlsx'))
+        self.assertTrue(chemin.read_bytes().startswith(b'PK'))
+        self.assertEqual((self.documents / self.nom).read_bytes(), b'ouvert')
+        self.assertIn('Fichier ouvert', message)
+
+    def test_tous_les_noms_ouverts(self):
+        noms = [self.nom] + [self.nom.replace('.xlsx', f' ({n}).xlsx') for n in range(2, 21)]
+        with self.verrouiller(*noms):
+            message = self.exporter()
+        self.ouvrir.assert_not_called()
+        self.assertIn(f'Le fichier {self.nom} est déjà ouvert dans un autre programme', message)
+        self.assertIn('Fermez-le', message)
+
+    def test_dossier_protege(self):
+        with mock.patch.object(Path, 'write_bytes', side_effect=PermissionError(13, 'Accès refusé')):
+            message = self.exporter()
+        self.ouvrir.assert_not_called()
+        self.assertIn("n'a pas pu être enregistré dans", message)
+
+    def test_documents_introuvable(self):
+        with mock.patch('stock.bureau.dossier_documents', side_effect=OSError('disque absent')):
+            message = self.exporter()
+        self.assertIn("n'a pas pu être enregistré", message)
+
+    def test_nom_de_fichier_sans_chemin(self):
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.http import HttpResponse
+
+        from .bureau import livrer
+
+        requete = RequestFactory().get('/')
+        requete.session = {}
+        requete._messages = FallbackStorage(requete)
+        reponse = HttpResponse(b'%PDF', content_type='application/pdf')
+        reponse['Content-Disposition'] = 'inline; filename="../../bon.pdf"'
+        livrer(requete, reponse)
+        self.assertEqual(self.ouvrir.call_args[0][0], self.documents / 'bon.pdf')
+
+
+@override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])
+class AdminLivrerTests(AvecDossier, TestCase):
+    """Exports et impressions de l'admin (inventaire compris) : ouverts sur l'ordinateur, comme ailleurs."""
+
+    def setUp(self):
+        super().setUp()
+        self.chef = get_user_model().objects.create_superuser('chef', 'chef@exemple.ci', 'motdepasse-solide')
+        self.client.force_login(self.chef)
+        self.enterContext(mock.patch('stock.bureau.Path.home', return_value=self.dossier))
+        self.ouvrir = self.enterContext(mock.patch('stock.bureau.ouvrir_fichier'))
+        self.article = Article.objects.create(code='F-1', designation='Filtre',
+                                              categorie=Categorie.objects.create(nom='Filtres'))
+        self.bon = BonEntree.objects.create(cree_par=self.chef)
+        LigneEntree.objects.create(bon=self.bon, article=self.article, quantite=5, prix_unitaire=100)
+        services.valider(self.bon, self.chef)
+
+    def action(self, modele, action, pk):
+        url = reverse(f'admin:stock_{modele}_changelist')
+        return self.client.post(url, {'action': action, '_selected_action': [pk]}, HTTP_REFERER=url)
+
+    def test_exports_et_impressions_ouverts_sur_l_ordinateur(self):
+        for modele, action, pk, extension in [
+                ('article', 'exporter_articles', self.article.pk, '.xlsx'),
+                ('bonentree', 'imprimer_bons', self.bon.pk, '.pdf'),
+                ('mouvementstock', 'exporter_mouvements', MouvementStock.objects.get().pk, '.xlsx')]:
+            rep = self.action(modele, action, pk)
+            self.assertRedirects(rep, reverse(f'admin:stock_{modele}_changelist'), fetch_redirect_response=False)
+            self.assertEqual(self.ouvrir.call_args[0][0].suffix, extension)
+        self.assertEqual(self.ouvrir.call_count, 3)
+
+    def test_version_web_piece_jointe(self):
+        with override_settings(BUREAU=False):
+            rep = self.action('article', 'exporter_articles', self.article.pk)
+        self.assertIn('attachment', rep['Content-Disposition'])
+        self.ouvrir.assert_not_called()
+
+    def test_lien_pdf_sans_nouvel_onglet(self):
+        from django.contrib import admin
+
+        from .admin import BonEntreeAdmin
+
+        lien = BonEntreeAdmin(BonEntree, admin.site).pdf
+        self.assertNotIn('target', lien(self.bon))
+        with override_settings(BUREAU=False):
+            self.assertIn('target="_blank"', lien(self.bon))
+
+
+# =========================================================
+# Pages d'erreur, journal, fenêtre Windows
+# =========================================================
+
+class PagesErreurTests(TestCase):
+    @override_settings(DEBUG=False)
+    def test_404_en_francais(self):
+        rep = self.client.get('/page-qui-n-existe-pas/')
+        self.assertTemplateUsed(rep, '404.html')
+        self.assertContains(rep, 'Page introuvable', status_code=404)
+        self.assertContains(rep, '<a class="btn btn-principal" href="/">Retour à l\'accueil</a>', status_code=404)
+
+    def test_500_sans_contexte(self):
+        from django.views.defaults import server_error
+
+        rep = server_error(RequestFactory().get('/'))
+        contenu = rep.content.decode()
+        self.assertEqual(rep.status_code, 500)
+        self.assertIn('Une erreur est survenue', contenu)
+        self.assertIn('href="/">Retour à l\'accueil</a>', contenu)
+        self.assertIn('lang="fr"', contenu)
+
+
+class JournalTests(SimpleTestCase):
+    def test_journal_limite_en_version_bureau(self):
+        import importlib.util
+        import logging.handlers
+
+        from django.conf import settings
+
+        temporaire = tempfile.TemporaryDirectory()
+        self.addCleanup(temporaire.cleanup)
+        dossier = Path(temporaire.name)
+        spec = importlib.util.spec_from_file_location('reglages_bureau_essai',
+                                                      settings.BASE_DIR / 'config' / 'settings.py')
+        reglages = importlib.util.module_from_spec(spec)
+        with mock.patch.dict(os.environ, {'MAGASIN_BUREAU': '1', 'MAGASIN_DATA_DIR': str(dossier)}):
+            spec.loader.exec_module(reglages)
+        options = dict(reglages.LOGGING['handlers']['fichier'])
+        self.assertEqual(options.pop('class'), 'logging.handlers.RotatingFileHandler')
+        self.assertEqual((options['maxBytes'], options['backupCount']), (1_000_000, 3))
+        self.assertEqual(options['filename'], dossier / 'journal.log')
+        options.pop('level')
+        journal = logging.handlers.RotatingFileHandler(**options)
+        try:
+            ligne = logging.LogRecord('stock', logging.WARNING, __file__, 1, 'x' * 1000, None, None)
+            for _ in range(5000):  # 5 Mo d'erreurs
+                journal.emit(ligne)
+        finally:
+            journal.close()
+        fichiers = sorted(dossier.glob('journal.log*'))
+        self.assertEqual([f.name for f in fichiers], ['journal.log', 'journal.log.1', 'journal.log.2', 'journal.log.3'])
+        self.assertTrue(all(f.stat().st_size <= 1_000_000 for f in fichiers))
+
+
+class FenetreTests(SimpleTestCase):
+    def windows(self, reponse):
+        user32 = mock.Mock()
+        user32.MessageBoxW.return_value = reponse
+        self.enterContext(mock.patch.object(sys, 'platform', 'win32'))
+        self.enterContext(mock.patch('ctypes.windll', create=True, new=mock.Mock(user32=user32)))
+        return user32
+
+    def test_webview2_absent_ouvrir_la_page(self):
+        import bureau
+
+        user32 = self.windows(6)  # Oui
+        with mock.patch('webbrowser.open') as navigateur:
+            bureau.proposer_webview2()
+        navigateur.assert_called_once_with(bureau.WEBVIEW2)
+        texte, titre, options = user32.MessageBoxW.call_args[0][1:]
+        self.assertIn('Ouvrir la page de téléchargement de WebView2 ?', texte)
+        self.assertEqual((titre, options), (produit.NOM, 0x14))
+
+    def test_webview2_absent_non(self):
+        import bureau
+
+        self.windows(7)  # Non
+        with mock.patch('webbrowser.open') as navigateur:
+            bureau.proposer_webview2()
+        navigateur.assert_not_called()
+
+    def test_webview2_sans_erreur(self):
+        import bureau
+
+        user32 = self.windows(6)
+        user32.MessageBoxW.side_effect = OSError('user32')
+        with mock.patch('webbrowser.open') as navigateur:
+            bureau.proposer_webview2()  # aucune exception
+        navigateur.assert_not_called()
+        with mock.patch.object(sys, 'platform', 'linux'):
+            user32.MessageBoxW.reset_mock()
+            bureau.proposer_webview2()
+        user32.MessageBoxW.assert_not_called()
+
+    def lancer(self, webview):
+        import bureau
+
+        temporaire = tempfile.TemporaryDirectory()
+        self.addCleanup(temporaire.cleanup)
+        dossier = Path(temporaire.name)
+        with mock.patch.dict(sys.modules, {'webview': webview}), mock.patch.object(sys, 'argv', ['bureau.py']), \
+                mock.patch.object(bureau, 'instance_unique', return_value=True), \
+                mock.patch.object(bureau, 'dossier_donnees', return_value=dossier), \
+                mock.patch.object(bureau, 'proposer_webview2') as proposer, \
+                mock.patch('sys.stderr', new_callable=io.StringIO), self.assertRaises(SystemExit) as fin:
+            bureau.main()
+        self.assertEqual(fin.exception.code, 1)
+        proposer.assert_called_once_with()
+        self.assertIn(bureau.WEBVIEW2, (dossier / 'erreur-demarrage.txt').read_text(encoding='utf-8'))
+
+    def test_fenetre_impossible(self):
+        from types import SimpleNamespace
+
+        webview = SimpleNamespace(settings={}, create_window=mock.Mock(),
+                                  start=mock.Mock(side_effect=RuntimeError('WebView2 absent')))
+        self.lancer(webview)
+        self.assertEqual(webview.settings, {'OPEN_EXTERNAL_LINKS_IN_BROWSER': True, 'ALLOW_DOWNLOADS': True})
+
+    def test_reglage_inconnu_de_pywebview(self):
+        from types import SimpleNamespace
+
+        class Reglages(dict):
+            def __setitem__(self, cle, valeur):
+                if cle == 'ALLOW_DOWNLOADS':  # ancienne version de pywebview
+                    raise KeyError(cle)
+                super().__setitem__(cle, valeur)
+
+        webview = SimpleNamespace(settings=Reglages(), create_window=mock.Mock(),
+                                  start=mock.Mock(side_effect=RuntimeError))
+        self.lancer(webview)
+        self.assertEqual(dict(webview.settings), {'OPEN_EXTERNAL_LINKS_IN_BROWSER': True})
+        webview.create_window.assert_called_once()
+
+    def test_contact_sur_l_ecran_d_echec(self):
+        import bureau
+
+        with mock.patch.multiple('config.produit', WHATSAPP='2250700000000', TELEPHONE_VENDEUR='',
+                                 EMAIL_VENDEUR='a@b.ci'):
+            self.assertEqual(bureau.contact_assistance(), 'WhatsApp : +225 07 00 00 00 00 · E-mail : a@b.ci')
+        with mock.patch.multiple('config.produit', WHATSAPP='', TELEPHONE_VENDEUR='', EMAIL_VENDEUR=''):
+            self.assertEqual(bureau.contact_assistance(), '')

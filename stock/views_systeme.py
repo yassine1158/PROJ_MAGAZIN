@@ -1,19 +1,22 @@
-"""Réglages › Sauvegarde (copies des données, clé USB, restauration, version du logiciel et mises à jour),
-effacement des données d'exemple et accès depuis les téléphones du magasin.
-
-Réservés aux responsables.
+"""Réglages › Sauvegarde (copies des données, clé USB, restauration), effacement des données d'exemple,
+accès depuis les téléphones du magasin (réservés aux responsables) ; Aide, Licence et mises à jour.
 """
+import logging
 from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from . import mises_a_jour, reseau, sauvegarde as s
+from config import produit
+
+from . import assistance, licence, mises_a_jour, reseau, sauvegarde as s
 from .bureau import livrer, ouvrir_fichier
+from .models import Parametres
 from .views_reglages import responsable
 
 RETOUR = 'stock:reglages_sauvegarde'
@@ -44,21 +47,7 @@ def sauvegarde(request):
         'attente': s.restauration_en_attente(),
         'resultat': etat.get('restauration'),
         'comptes': s.compter_donnees(),
-        'version': mises_a_jour.resume() if settings.BUREAU else None,
     })
-
-
-@responsable
-@require_POST
-def mise_a_jour_verifier(request):
-    if not settings.BUREAU:
-        messages.error(request, 'Les mises à jour se vérifient dans le logiciel installé sur Windows.')
-        return redirect(RETOUR)
-    try:
-        mises_a_jour.verifier_maintenant()
-    except mises_a_jour.ErreurMiseAJour:
-        pass  # le message est affiché dans la partie « Version du logiciel »
-    return redirect(reverse(RETOUR) + '#version')
 
 
 @responsable
@@ -249,3 +238,101 @@ def _telephones_changer(request):
     messages.success(request, f'Accès des téléphones activé (port {port}). Sur le téléphone, ouvrez l\'adresse '
                               'ci-dessous ou scannez le QR code.')
     return retour
+
+
+# =========================================================
+# Licence
+# =========================================================
+
+def activation(request):
+    """État de la licence et saisie de la clé (accessible même quand l'essai est terminé)."""
+    if request.method == 'POST':
+        try:
+            cle = licence.activer(request.POST.get('cle', ''))
+            messages.success(request, f'Logiciel activé pour « {cle.client} ». Merci !')
+            return redirect('stock:accueil')
+        except ValueError as e:
+            messages.error(request, str(e))
+    code = licence.code_machine()
+    texte = (f"Bonjour, je souhaite activer {produit.NOM}. Code de mon ordinateur : {code}. "
+             f"Société : {Parametres.actuels().nom_societe or '…'}. Voici ma preuve de paiement Wave :")
+    return render(request, 'stock/activation.html', {
+        'etat': licence.etat(), 'code': code, 'prix': produit.PRIX, 'essai_jours': produit.ESSAI_JOURS,
+        'wave': produit.WAVE_LIEN, 'whatsapp': assistance.lien_whatsapp(texte),
+        'whatsapp_numero': assistance.numero_lisible(produit.WHATSAPP),
+        'contacts': assistance.contacts(), 'site': produit.SITE_WEB,
+    })
+
+
+# =========================================================
+# Aide et assistance
+# =========================================================
+
+AIDE = 'stock:aide'
+
+
+@login_required
+def aide(request):
+    societe = Parametres.actuels().nom_societe
+    texte = f"Bonjour, j'ai besoin d'aide avec {produit.NOM} {produit.VERSION}."
+    if societe:
+        texte += f' Société : {societe}.'
+    responsable_pc = settings.BUREAU and request.user.is_staff
+    return render(request, 'stock/aide.html', {
+        'whatsapp': assistance.lien_whatsapp(texte),
+        'contacts': assistance.contacts(),
+        'site': produit.SITE_WEB,
+        'version': mises_a_jour.resume() if responsable_pc else None,
+        'dossier': settings.DATA_DIR if responsable_pc else None,
+        'licence': bool(produit.CLE_PUBLIQUE),
+        'essai_jours': produit.ESSAI_JOURS,
+        'prix': produit.PRIX,
+    })
+
+
+@responsable
+@require_POST
+def mise_a_jour_verifier(request):
+    if not settings.BUREAU:
+        messages.error(request, 'Les mises à jour se vérifient dans le logiciel installé sur Windows.')
+        return redirect(AIDE)
+    try:
+        mises_a_jour.verifier_maintenant()
+    except mises_a_jour.ErreurMiseAJour:
+        pass  # le message est affiché dans la partie « Version du logiciel »
+    return redirect(reverse(AIDE) + '#version')
+
+
+@responsable
+@require_POST
+def aide_dossier(request):
+    if not settings.BUREAU:
+        messages.error(request, 'Cette action est disponible seulement dans le logiciel installé sur Windows.')
+        return redirect(AIDE)
+    if not reseau.est_local(request):
+        messages.error(request, "Cette action est disponible seulement sur l'ordinateur où le logiciel est "
+                                'installé.')
+        return redirect(AIDE)
+    try:
+        ouvrir_fichier(settings.DATA_DIR)
+    except OSError:
+        messages.error(request, f"Le dossier n'a pas pu être ouvert. Il se trouve ici : {settings.DATA_DIR}")
+    return redirect(reverse(AIDE) + '#assistance')
+
+
+@responsable
+@require_POST
+def aide_rapport(request):
+    if not settings.BUREAU:
+        messages.error(request, 'Cette action est disponible seulement dans le logiciel installé sur Windows.')
+        return redirect(AIDE)
+    try:
+        nom, contenu = assistance.rapport()
+    except Exception:
+        logging.getLogger('stock').exception('Rapport pour l\'assistance impossible')
+        messages.error(request, "Le rapport n'a pas pu être préparé. Réessayez, ou envoyez à l'assistance une "
+                                'photo de l\'écran.')
+        return redirect(AIDE)
+    reponse = HttpResponse(contenu, content_type='application/zip')
+    reponse['Content-Disposition'] = f'attachment; filename="{nom}"'
+    return livrer(request, reponse)

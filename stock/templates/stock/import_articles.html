@@ -1,0 +1,188 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Importer des articles{% endblock %}
+{% block contenu %}
+<main class="page import-articles">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <p class="fil"><a href="{% url 'stock:articles' %}">Articles</a> › Importer depuis Excel</p>
+      <h1>{% if etape == 'apercu' %}Vérifiez avant d'importer{% elif etape == 'resultat' %}Import terminé{% else %}Importer des articles depuis Excel{% endif %}</h1>
+      {% if etape == 'envoi' %}<p>Reprenez votre liste d'articles en une fois : codes, catégories, emplacements et stock de départ.</p>
+      {% elif etape == 'apercu' %}<p>Fichier « {{ analyse.nom_fichier }} »{% if analyse.feuille and analyse.feuille != 'CSV' %} · feuille {{ analyse.feuille }}{% endif %} · {{ analyse.lignes|length }} ligne{{ analyse.lignes|length|pluralize }} lue{{ analyse.lignes|length|pluralize }}. Rien n'est encore enregistré.</p>{% endif %}
+    </div>
+  </div>
+
+  <ol class="etapes-import" aria-label="Étapes">
+    <li class="{% if etape == 'envoi' %}actif{% else %}fait{% endif %}"><span>1</span> Envoyer le fichier</li>
+    <li class="{% if etape == 'apercu' %}actif{% elif etape == 'resultat' %}fait{% endif %}"><span>2</span> Vérifier</li>
+    <li class="{% if etape == 'resultat' %}actif{% endif %}"><span>3</span> Terminé</li>
+  </ol>
+
+{% if etape == 'envoi' %}
+  <div class="grid-2">
+    <section class="carte carte-pad">
+      <h2>1. Préparez votre fichier</h2>
+      <p>Téléchargez le modèle et remplissez une ligne par article. Seule la <b>Désignation</b> est obligatoire ; la feuille « Aide » explique chaque colonne.</p>
+      <a class="btn" href="{% url 'stock:import_modele' %}">{% icone 'excel' %} Télécharger le modèle Excel</a>
+      <p class="muted petit">Votre liste existe déjà dans Excel ? Envoyez-la telle quelle : les titres comme <i>Réf</i>, <i>Libellé</i>, <i>Famille</i>, <i>Qté</i>, <i>PU</i> ou <i>Seuil</i> sont reconnus.</p>
+    </section>
+    <section class="carte carte-pad">
+      <h2>2. Envoyez-le</h2>
+      <form method="post" enctype="multipart/form-data" class="envoi-import">
+        {% csrf_token %}
+        <label for="fichier">Fichier Excel (.xlsx) ou CSV</label>
+        <input type="file" id="fichier" name="fichier" accept=".xlsx,.xlsm,.csv,.txt,.xls" required>
+        <button class="btn btn-vert btn-grand">{% icone 'recherche' %} Voir l'aperçu</button>
+      </form>
+      <p class="muted petit">Rien n'est enregistré à cette étape : vous verrez d'abord chaque ligne, avec les erreurs. {{ max_lignes }} lignes au plus par fichier.</p>
+    </section>
+  </div>
+
+  <details class="carte carte-pad aide-import">
+    <summary>Les colonnes du fichier</summary>
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>Colonne</th><th>Ce qu'il faut mettre</th><th class="masquer-mobile">Exemple</th></tr></thead>
+      <tbody>
+      {% for c in colonnes %}
+        <tr><td class="sans-coupure"><b>{{ c.titre }}</b>{% if c.obligatoire %} <span class="badge badge-warn">obligatoire</span>{% endif %}</td><td>{{ c.aide }}</td><td class="masquer-mobile sans-coupure">{{ c.exemple }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </details>
+  <details class="carte carte-pad aide-import">
+    <summary>Unités acceptées</summary>
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>Unité</th><th>Nom</th><th>Aussi accepté</th></tr></thead>
+      <tbody>
+      {% for code, nom, autres in unites %}<tr><td><b>{{ code }}</b></td><td>{{ nom }}</td><td class="muted">{{ autres }}</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+    <p class="muted petit">Une unité inconnue devient U (unité), avec un avertissement dans l'aperçu.</p>
+  </details>
+
+{% elif etape == 'apercu' %}
+  <div class="kpis kpis-import">
+    <div class="carte kpi"><div class="label">Prêts</div><div class="valeur qte-plus">{{ analyse.prets|length }}</div><div class="muted petit">seront créés</div></div>
+    <div class="carte kpi"><div class="label">À vérifier</div><div class="valeur" style="color:#b45f06">{{ analyse.avertissements|length }}</div><div class="muted petit">seront créés, lisez la remarque</div></div>
+    <div class="carte kpi"><div class="label">Erreurs</div><div class="valeur qte-moins">{{ analyse.erreurs|length }}</div><div class="muted petit">seront ignorées</div></div>
+  </div>
+
+  <form method="post" action="{% url 'stock:import_confirmer' %}" onsubmit="const b = this.querySelector('button[type=submit]'); if (b) { b.disabled = true; b.textContent = 'Import en cours…'; }">
+    {% csrf_token %}
+    <section class="carte carte-pad resume-import">
+      <h2>Ce qui sera créé</h2>
+      {% with nb=analyse.importables|length %}
+      <ul>
+        <li><b>{{ nb }} article{{ nb|pluralize }}</b>{% if codes_auto %} (dont {{ codes_auto }} avec un code créé automatiquement){% endif %}.</li>
+        {% with s=analyse.avec_stock|length %}
+        {% if s %}<li>Un seul bon d'entrée <b>« Stock de départ »</b> pour {{ s }} article{{ s|pluralize }}, valeur {{ analyse.valeur_stock|montant }} {{ DEVISE }}.</li>
+        {% else %}<li>Aucun stock de départ dans le fichier : les quantités seront à saisir par une entrée de stock.</li>{% endif %}
+        {% endwith %}
+        {% if analyse.nouvelles_categories %}<li>Nouvelles catégories : {% for c in analyse.nouvelles_categories %}<span class="chip">{{ c }}</span> {% endfor %}</li>{% endif %}
+        {% if analyse.sans_categorie %}<li>{{ analyse.sans_categorie }} article{{ analyse.sans_categorie|pluralize }} sans catégorie : rangé{{ analyse.sans_categorie|pluralize }} dans « Divers ».</li>{% endif %}
+      </ul>
+      {% endwith %}
+      <p class="muted petit colonnes-lues">Colonnes lues :
+        {% for titre, colonne, renomme in analyse.colonnes %}{% if colonne %}<span class="chip">{{ titre }}{% if renomme %} → {{ colonne.titre }}{% endif %}</span>{% else %}<span class="chip chip-ignoree" title="Colonne non reconnue : elle n'est pas importée">{{ titre }} (ignorée)</span>{% endif %} {% endfor %}
+      </p>
+
+      {% if analyse.manquants %}
+      <div class="emplacements-import">
+        <h3>Emplacements absents du plan</h3>
+        <p>{{ analyse.nb_a_ranger }} article{{ analyse.nb_a_ranger|pluralize }} {{ analyse.nb_a_ranger|pluralize:"est rangé,sont rangés" }} sur des étagères qui n'existent pas encore :</p>
+        <ul class="liste-emplacements">{% for bloc, etageres in analyse.manquants_lisibles %}<li><b>{{ bloc }}</b> : étagère{{ etageres|length|pluralize }} {{ etageres|join:", " }}</li>{% endfor %}</ul>
+        <label class="choix-radio"><input type="radio" name="emplacements" value="creer" checked>
+          <span>Créer {% if analyse.nb_blocs_manquants %}{{ analyse.nb_blocs_manquants }} bloc{{ analyse.nb_blocs_manquants|pluralize }} et {% endif %}{{ analyse.nb_etageres_manquantes }} étagère{{ analyse.nb_etageres_manquantes|pluralize }} <span class="muted">— placés automatiquement, à ajuster ensuite dans Plan du magasin</span></span></label>
+        <label class="choix-radio"><input type="radio" name="emplacements" value="non">
+          <span>Ne rien créer : ces articles seront « non rangés »</span></label>
+      </div>
+      {% endif %}
+
+      <div class="boutons-import">
+        <a class="btn" href="{% url 'stock:import_articles' %}">{% icone 'annuler' %} Changer de fichier</a>
+        {% if analyse.importables %}
+        <button type="submit" class="btn btn-vert btn-grand">{% icone 'valider' %} Importer {{ analyse.importables|length }} article{{ analyse.importables|length|pluralize }}</button>
+        {% else %}
+        <span class="message message-error">Aucune ligne ne peut être importée : corrigez le fichier, puis envoyez-le de nouveau.</span>
+        {% endif %}
+      </div>
+    </section>
+  </form>
+
+  {% if problemes %}
+  <section class="carte table-wrap">
+    <div class="titre-tableau-import">
+      <h2>À corriger ou à vérifier ({{ nb_problemes }})</h2>
+      <a class="btn" href="?format=excel">{% icone 'excel' %} Liste complète (Excel)</a>
+    </div>
+    {% if frequentes %}
+    <div class="frequentes-import">
+      <b>Les plus fréquentes</b>
+      <ul>{% for message, nombre in frequentes %}<li><span class="badge badge-gris">{{ nombre }} lignes</span> {{ message }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+    <table class="data table-import">
+      <thead><tr><th class="num">Ligne</th><th>Article</th><th>Remarque</th></tr></thead>
+      <tbody>
+      {% for l in problemes %}
+        <tr class="{% if l.statut == 'erreur' %}ligne-erreur{% endif %}">
+          <td class="num">{{ l.numero }}</td>
+          <td><b>{{ l.designation|default:"(sans désignation)" }}</b><div class="muted petit">{{ l.code|default:"" }}{% if l.code_auto %} (code automatique){% endif %}</div></td>
+          <td>{% if l.statut == 'erreur' %}<span class="badge badge-danger">Ignorée</span>{% else %}<span class="badge badge-warn">À vérifier</span>{% endif %}
+            {% for m in l.messages %}<div class="petit">{{ m }}</div>{% endfor %}</td>
+        </tr>
+      {% endfor %}
+      {% if autres_problemes %}<tr><td colspan="3" class="muted petit">… et {{ autres_problemes }} autre{{ autres_problemes|pluralize }} : <a href="?tout=1">tout afficher</a> ou voir la liste complète (Excel).</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  {% if prets %}
+  <section class="carte table-wrap">
+    <div class="titre-tableau-import"><h2>Prêts à importer ({{ analyse.prets|length }})</h2></div>
+    <table class="data table-import">
+      <thead><tr><th class="num">Ligne</th><th>Article</th><th class="masquer-mobile">Catégorie</th><th class="masquer-mobile">Emplacement</th><th class="num">Stock de départ</th><th class="num masquer-mobile">Prix unitaire</th></tr></thead>
+      <tbody>
+      {% for l in prets %}
+        <tr>
+          <td class="num">{{ l.numero }}</td>
+          <td><b>{{ l.designation }}</b><div class="muted petit">{{ l.code }}{% if l.code_auto %} (automatique){% endif %}<span class="seulement-telephone"> · {{ l.categorie }}{% if l.emplacement %} · {{ l.emplacement }}{% endif %}</span></div></td>
+          <td class="masquer-mobile">{{ l.categorie }}</td>
+          <td class="masquer-mobile">{% if l.emplacement %}{{ l.emplacement }}{% if l.nouvel_emplacement %} <span class="badge badge-gris" title="Étagère absente du plan">nouveau</span>{% endif %}{% else %}<span class="muted">Non rangé</span>{% endif %}</td>
+          <td class="num sans-coupure">{% if l.stock %}{{ l.stock|qte }} {{ l.unite }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="num masquer-mobile sans-coupure">{% if l.prix %}{{ l.prix|montant }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      {% if autres_prets %}<tr><td colspan="6" class="muted petit">… et {{ autres_prets }} autre{{ autres_prets|pluralize }} ligne{{ autres_prets|pluralize }} prête{{ autres_prets|pluralize }}.</td></tr>{% endif %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+{% else %}
+  <section class="carte carte-pad resultat-import">
+    <div class="grand-resultat">
+      <div class="rond rond-vert">{% icone 'valider' %}</div>
+      <div><b>{{ resultat.crees }} article{{ resultat.crees|pluralize }} créé{{ resultat.crees|pluralize }}</b>
+        <span class="muted">{% if resultat.ignores %}{{ resultat.ignores }} ligne{{ resultat.ignores|pluralize }} ignorée{{ resultat.ignores|pluralize }} (voir le rapport){% else %}aucune ligne ignorée{% endif %} · fichier « {{ resultat.fichier }} »</span></div>
+    </div>
+    <ul>
+      {% if resultat.bon %}<li>Bon d'entrée <a href="{% url 'stock:bon_detail' 'entree' resultat.bon.0 %}"><b>{{ resultat.bon.1 }}</b></a> « Stock de départ » : {{ resultat.nb_lignes_bon }} article{{ resultat.nb_lignes_bon|pluralize }}, valeur {{ valeur|montant }} {{ DEVISE }}.</li>
+      {% else %}<li>Aucun stock de départ : faites une <a href="{% url 'stock:entree' %}">entrée de stock</a> pour les quantités.</li>{% endif %}
+      {% if resultat.categories %}<li>Catégorie{{ resultat.categories|length|pluralize }} créée{{ resultat.categories|length|pluralize }} : {{ resultat.categories|join:", " }}.</li>{% endif %}
+      {% if resultat.etageres %}<li>Plan : {% if resultat.blocs %}bloc{{ resultat.blocs|length|pluralize }} {{ resultat.blocs|join:", " }} et {% endif %}{{ resultat.etageres|length }} étagère{{ resultat.etageres|length|pluralize }} ajoutée{{ resultat.etageres|length|pluralize }}, placée{{ resultat.etageres|length|pluralize }} automatiquement. <a href="{% url 'stock:reglages_plan' %}">Vérifiez leur place dans Plan du magasin</a>.</li>{% endif %}
+      {% if resultat.non_ranges %}<li>{{ resultat.non_ranges }} article{{ resultat.non_ranges|pluralize }} laissé{{ resultat.non_ranges|pluralize }} « non rangé{{ resultat.non_ranges|pluralize }} » : choisissez leur étagère dans leur fiche.</li>{% endif %}
+      <li class="muted">Durée de l'import : {{ resultat.duree }} s.</li>
+    </ul>
+    <div class="boutons-import">
+      <a class="btn" href="{% url 'stock:import_rapport' %}">{% icone 'excel' %} Rapport (Excel)</a>
+      <a class="btn" href="{{ lien_etiquettes }}">{% icone 'qr' %} Imprimer leurs étiquettes</a>
+      <a class="btn" href="{% url 'stock:import_articles' %}">Importer un autre fichier</a>
+      <a class="btn btn-vert" href="{% url 'stock:articles' %}">{% icone 'articles' %} Voir les articles</a>
+    </div>
+  </section>
+{% endif %}
+</main>
+{% endblock %}

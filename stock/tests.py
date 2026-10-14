@@ -232,7 +232,7 @@ class EcransTests(Base):
             'article': [self.filtre.pk, ''], 'quantite': ['10', ''], 'prix': ['1 500,50', ''],
         })
         bon = BonEntree.objects.get()
-        self.assertRedirects(rep, reverse('stock:bon_detail', args=['entree', bon.pk]))
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['entree', bon.pk]) + '?nouveau=1')
         self.assertEqual(bon.statut, 'VALIDE')
         self.assertEqual(bon.fournisseur.nom, 'Nouveau fournisseur')
         self.filtre.refresh_from_db()
@@ -242,22 +242,26 @@ class EcransTests(Base):
 
     def test_sortie_cree_le_chantier_et_refuse_le_stock_insuffisant(self):
         self.entree(self.filtre, 3, 100)
-        rep = self.client.post(reverse('stock:sortie'), {
-            'chantier': 'Nouveau chantier', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['5'],
-        })
+        donnees = {'chantier': 'Nouveau chantier', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['5']}
+        rep = self.client.post(reverse('stock:sortie'), donnees)
+        self.assertContains(rep, 'Oui, créer ce chantier')  # pas de création sans confirmation
+        donnees['creer_chantier'] = 'Nouveau chantier'
+        rep = self.client.post(reverse('stock:sortie'), donnees)
         self.assertEqual(rep.status_code, 200)
-        self.assertContains(rep, 'stock insuffisant')
+        self.assertContains(rep, 'Filtre à huile Volvo : il reste 3 unités, vous en demandez 5.')
         self.assertFalse(BonSortie.objects.exists())  # rien n'est gardé
         self.assertFalse(Chantier.objects.filter(nom='Nouveau chantier').exists())
         rep = self.client.post(reverse('stock:sortie'), {
-            'chantier': 'nouveau CHANTIER', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2'],
+            'chantier': 'nouveau  CHANTIER ', 'creer_chantier': 'Nouveau chantier', 'demandeur': 'Ali',
+            'article': [self.filtre.pk], 'quantite': ['2'],
         })
         bon = BonSortie.objects.get()
-        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertEqual(bon.chantier.nom, 'nouveau CHANTIER')
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]) + '?nouveau=1')
         self.filtre.refresh_from_db()
         self.assertEqual(self.filtre.stock, 1)
         # Annulation depuis l'écran du bon
-        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]))
+        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]), {'motif': 'Erreur'})
         self.filtre.refresh_from_db()
         self.assertEqual(self.filtre.stock, 3)
 
@@ -607,7 +611,7 @@ class DroitsTests(Base):
         rep = self.client.post(reverse('stock:sortie'), {
             'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2']})
         bon = BonSortie.objects.get()
-        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]) + '?nouveau=1')
         pdf = self.client.get(reverse('stock:bon_pdf', args=['bonsortie', bon.pk]))
         self.assertEqual(pdf.status_code, 200)
         self.assertEqual(pdf['Content-Type'], 'application/pdf')
@@ -651,7 +655,7 @@ class DroitsTests(Base):
         self.assertContains(self.client.get(reverse('stock:bon_detail', args=['sortie', bon.pk])), 'Annuler ce bon')
         self.assertContains(self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk])),
                             reverse('stock:article_corriger', args=[self.filtre.pk]))
-        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]))
+        self.client.post(reverse('stock:bon_annuler', args=['sortie', bon.pk]), {'motif': 'Mauvais chantier'})
         bon.refresh_from_db()
         self.assertEqual(bon.statut, 'ANNULE')
 
@@ -669,7 +673,7 @@ class DoubleEnvoiTests(Base):
         premier = self.client.post(reverse('stock:sortie'), donnees)
         second = self.client.post(reverse('stock:sortie'), donnees, follow=True)
         bon = BonSortie.objects.get()
-        self.assertEqual(premier.url, reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertEqual(premier.url, reverse('stock:bon_detail', args=['sortie', bon.pk]) + '?nouveau=1')
         self.assertRedirects(second, reverse('stock:bon_detail', args=['sortie', bon.pk]))
         self.assertContains(second, 'déjà enregistré')
         self.filtre.refresh_from_db()
@@ -900,7 +904,8 @@ class AffichageTests(Base):
         self.assertEqual(rep.content.decode().count('message-success'), 1)
         self.assertContains(rep, 'enregistrée')
         # Les pages qui n'affichaient pas les messages les montrent maintenant (ici : l'historique).
-        self.client.post(reverse('stock:bon_annuler', args=['entree', BonEntree.objects.get().pk]))
+        self.client.post(reverse('stock:bon_annuler', args=['entree', BonEntree.objects.get().pk]),
+                         {'motif': 'Erreur de saisie'})
         self.assertContains(self.client.get(reverse('stock:bons')), 'est annulé', count=1)
 
 
@@ -944,3 +949,1472 @@ class ReglagesSecuriteTests(TestCase):
         self.assertEqual(rep.status_code, 403)
         self.assertContains(rep, 'La page a expiré, rechargez-la', status_code=403)
         self.assertContains(rep, "Retour à l'accueil", status_code=403)
+
+
+# =========================================================
+# Justesse du stock : prix moyen, inventaire, annulation, messages, dates, brouillons
+# =========================================================
+
+class JustesseBase(Base):
+    def setUp(self):
+        super().setUp()
+        self.magasinier = get_user_model().objects.create_user('awa', password='Magasin-2026!')
+
+    def il_y_a(self, **duree):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        return timezone.now() - timedelta(**duree)
+
+    def entree_le(self, date, article, qte, prix=0):
+        bon = BonEntree.objects.create(date=date)
+        LigneEntree.objects.create(bon=bon, article=article, quantite=qte, prix_unitaire=prix)
+        return services.valider(bon, self.user)
+
+    def sortie_le(self, date, article, qte):
+        bon = BonSortie.objects.create(date=date, chantier=self.chantier, demandeur='Ali')
+        LigneSortie.objects.create(bon=bon, article=article, quantite=qte)
+        return services.valider(bon, self.user)
+
+    def inventaire(self, *lignes, date=None):
+        """lignes : (article, quantité comptée ou None, compté le)."""
+        inv = Inventaire.objects.create(**({'date': date} if date else {}))
+        for article, compte, compte_le in lignes:
+            LigneInventaire.objects.create(bon=inv, article=article, stock_compte=compte, compte_le=compte_le)
+        return inv
+
+    def stock(self, article):
+        article.refresh_from_db()
+        return article.stock
+
+
+class PrixMoyenTests(JustesseBase):
+    def test_annulation_d_une_entree_ne_rend_pas_le_prix_negatif(self):
+        # Scénario de l'audit : BE1 10 à 1000, BE2 10 à 10, sortie de 5 → 15 à 505 ; annuler BE1.
+        be1 = self.entree(self.filtre, 10, 1000)
+        self.entree(self.filtre, 10, 10)
+        services.valider(self.sortie(self.filtre, 5), self.user)
+        self.filtre.refresh_from_db()
+        self.assertEqual((self.filtre.stock, self.filtre.prix_moyen), (15, Decimal('505.00')))
+        services.annuler(be1, self.user, 'test')
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 5)
+        self.assertEqual(self.filtre.prix_moyen, Decimal('505.00'))  # et non -485
+        self.assertGreaterEqual(self.filtre.valeur_stock, 0)
+        self.assertGreater(MouvementStock.objects.get(type=MouvementStock.ANNULATION).prix_unitaire, 0)
+
+    def test_annulation_qui_vide_le_stock_garde_le_prix_moyen(self):
+        self.entree(self.filtre, 10, 1000)
+        be = self.entree(self.filtre, 5, 2000)
+        services.valider(self.sortie(self.filtre, 10), self.user)
+        services.annuler(be, self.user, 'test')
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.stock, 0)
+        self.assertEqual(self.filtre.prix_moyen, Decimal('1333.33'))
+
+    def test_annulation_simple_recalcule_toujours(self):
+        self.entree(self.filtre, 10, 1000)
+        be = self.entree(self.filtre, 10, 3000)
+        services.annuler(be, self.user, 'test')
+        self.filtre.refresh_from_db()
+        self.assertEqual((self.filtre.stock, self.filtre.prix_moyen), (10, Decimal('1000.00')))
+
+    def test_stock_sans_prix_prend_le_premier_prix_connu(self):
+        # Scénario de l'audit : 100 sacs sans prix puis 10 sacs à 5000 → 5000 (et non 454,55).
+        self.entree(self.ciment, 100, 0)
+        self.entree(self.ciment, 10, 5000)
+        self.ciment.refresh_from_db()
+        self.assertEqual(self.ciment.prix_moyen, Decimal('5000.00'))
+        self.assertEqual(self.ciment.valeur_stock, Decimal('550000'))
+        self.entree(self.ciment, 110, 6000)
+        self.ciment.refresh_from_db()
+        self.assertEqual(self.ciment.prix_moyen, Decimal('5500.00'))
+
+    def test_cmp(self):
+        d = Decimal
+        self.assertEqual(services._cmp(d(100), d(0), d(10), d(5000)), d('5000.00'))
+        self.assertEqual(services._cmp(d(10), d(1000), d(10), d(0)), d(1000))
+        self.assertEqual(services._cmp(d(0), d(0), d(4), d('12.5')), d('12.50'))
+        self.assertEqual(services._cmp(d(10), d(1000), d(10), d(2000)), d('1500.00'))
+
+
+class InventaireJusteTests(JustesseBase):
+    def test_sortie_entre_comptage_et_validation_n_est_pas_effacee(self):
+        # Scénario de l'audit : 10 comptés le matin, sortie de 3 à midi, validation le soir → 7.
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        inv = self.inventaire((self.filtre, Decimal('10'), self.il_y_a(hours=2)))
+        services.valider(self.sortie(self.filtre, 3), self.user)
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 7)
+        self.assertFalse(MouvementStock.objects.filter(type=MouvementStock.INVENTAIRE).exists())
+        ligne = inv.lignes.get()
+        self.assertEqual(ligne.stock_theorique, 10)
+        self.assertEqual(ligne.ecart, 0)
+
+    def test_ecart_reel_garde_avec_la_sortie_faite_depuis(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        inv = self.inventaire((self.filtre, Decimal('8'), self.il_y_a(hours=2)))  # 2 manquent au comptage
+        services.valider(self.sortie(self.filtre, 3), self.user)
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 5)
+        ligne = inv.lignes.get()
+        self.assertEqual((ligne.stock_theorique, ligne.ecart), (10, -2))
+        ajustement = MouvementStock.objects.get(type=MouvementStock.INVENTAIRE)
+        self.assertEqual(ajustement.quantite, -2)
+        # Daté au moment du comptage : la fiche de stock se lit dans l'ordre.
+        historique = list(MouvementStock.objects.filter(article=self.filtre).order_by('date', 'id'))
+        self.assertEqual([m.type for m in historique], ['ENTREE', 'INVENTAIRE', 'SORTIE'])
+        self.assertEqual([m.stock_apres for m in historique], [10, 8, 5])
+
+    def test_entree_entre_comptage_et_validation(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 4, 1000)
+        inv = self.inventaire((self.filtre, Decimal('4'), self.il_y_a(hours=1)))
+        self.entree(self.filtre, 6, 1000)
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_sans_heure_de_comptage_la_date_du_bon_sert(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        inv = self.inventaire((self.filtre, Decimal('10'), None), date=self.il_y_a(hours=3))
+        services.valider(self.sortie(self.filtre, 4), self.user)
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 6)
+
+    def test_lignes_non_comptees_ignorees(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        self.entree_le(self.il_y_a(days=1), self.ciment, 50, 5000)
+        inv = self.inventaire((self.filtre, Decimal('9'), self.il_y_a(hours=1)), (self.ciment, None, None))
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 9)
+        self.assertEqual(self.stock(self.ciment), 50)
+        non_comptee = inv.lignes.get(article=self.ciment)
+        self.assertIsNone(non_comptee.stock_theorique)
+        self.assertIsNone(non_comptee.ecart)
+        self.assertEqual(str(non_comptee), 'CIM-45 : non compté')
+        self.assertEqual(inv.total(), Decimal('-1000'))
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('stock:bon_detail', args=['inventaire', inv.pk]))
+        self.assertContains(page, 'non compté')
+        pdf = self.client.get(reverse('stock:bon_pdf', args=['inventaire', inv.pk]))
+        self.assertEqual(pdf.status_code, 200)
+
+    def test_aucune_ligne_comptee_refusee(self):
+        inv = self.inventaire((self.filtre, None, None))
+        with self.assertRaisesMessage(services.StockError, "Aucun article n'a été compté"):
+            services.valider(inv, self.user)
+        inv.refresh_from_db()
+        self.assertEqual(inv.statut, Inventaire.BROUILLON)
+
+    def test_annulation_d_un_bon_anterieur_au_comptage(self):
+        # Sortie saisie hier par erreur (rien n'est sorti) ; comptage ce matin : 10 ; annulation ensuite.
+        self.entree_le(self.il_y_a(days=2), self.filtre, 10, 1000)
+        sortie = self.sortie_le(self.il_y_a(days=1), self.filtre, 3)
+        inv = self.inventaire((self.filtre, Decimal('10'), self.il_y_a(hours=1)))
+        services.annuler(sortie, self.user, 'Saisie en double')
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 10)  # et non 13
+
+    def test_sortie_faite_et_annulee_apres_le_comptage(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        inv = self.inventaire((self.filtre, Decimal('10'), self.il_y_a(hours=1)))
+        sortie = services.valider(self.sortie(self.filtre, 3), self.user)
+        services.annuler(sortie, self.user, 'Erreur')
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_comptage_depasse_par_une_correction_plus_recente(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        ancien = self.inventaire((self.filtre, Decimal('10'), self.il_y_a(hours=2)))
+        correction = self.inventaire((self.filtre, Decimal('6'), self.il_y_a(hours=1)))
+        services.valider(correction, self.user)
+        services.valider(ancien, self.user)
+        self.assertEqual(self.stock(self.filtre), 6)  # le comptage le plus récent l'emporte
+        ligne = LigneInventaire.objects.get(bon=ancien)
+        self.assertTrue(ligne.ignoree)
+        self.assertIsNone(ligne.ecart)
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(reverse('stock:bon_detail', args=['inventaire', ancien.pk])),
+                            'recompté depuis')
+
+    def test_comptage_plus_ancien_valide_apres_garde_le_plus_recent(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        ancien = self.inventaire((self.filtre, Decimal('9'), self.il_y_a(hours=3)))
+        recent = self.inventaire((self.filtre, Decimal('7'), self.il_y_a(hours=1)))
+        services.valider(ancien, self.user)
+        self.assertEqual(self.stock(self.filtre), 9)
+        services.valider(recent, self.user)
+        self.assertEqual(self.stock(self.filtre), 7)
+
+    def test_comptage_plus_petit_que_les_sorties_faites_depuis(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        inv = self.inventaire((self.filtre, Decimal('2'), self.il_y_a(hours=1)))
+        services.valider(self.sortie(self.filtre, 5), self.user)
+        with self.assertRaises(services.StockError) as erreur:
+            services.valider(inv, self.user)
+        self.assertEqual(erreur.exception.messages, [
+            'Filtre à huile Volvo : le comptage indique 2 unités, mais il en est sorti 5 depuis. '
+            'Recomptez cet article.'])
+        self.assertEqual(self.stock(self.filtre), 5)
+
+    def test_correction_depuis_la_fiche_article_note_l_heure(self):
+        self.entree(self.filtre, 10, 100)
+        self.client.force_login(self.user)
+        self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': '8'})
+        ligne = LigneInventaire.objects.get()
+        self.assertIsNotNone(ligne.compte_le)
+        self.assertEqual((ligne.stock_theorique, ligne.ecart), (10, -2))
+
+    def test_admin_note_l_heure_du_comptage(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        self.entree_le(self.il_y_a(days=1), self.ciment, 5, 1000)
+        self.client.force_login(self.user)
+        donnees = {
+            'date_0': '01/10/2026', 'date_1': '08:00:00', 'observation': 'Inventaire',
+            'lignes-TOTAL_FORMS': '2', 'lignes-INITIAL_FORMS': '0', 'lignes-MIN_NUM_FORMS': '0',
+            'lignes-MAX_NUM_FORMS': '1000',
+            'lignes-0-article': self.filtre.pk, 'lignes-0-stock_compte': '9',
+            'lignes-1-article': self.ciment.pk, 'lignes-1-stock_compte': '',
+        }
+        rep = self.client.post(reverse('admin:stock_inventaire_add'), donnees)
+        self.assertEqual(rep.status_code, 302, rep.content.decode()[:3000])
+        inv = Inventaire.objects.get()
+        compte = inv.lignes.get(article=self.filtre)
+        self.assertIsNotNone(compte.compte_le)
+        self.assertIsNone(inv.lignes.get(article=self.ciment).compte_le)
+        # Modification d'une seule ligne : l'heure de l'autre ne bouge pas.
+        donnees.update({'lignes-INITIAL_FORMS': '2', 'lignes-0-id': compte.pk, 'lignes-0-bon': inv.pk,
+                        'lignes-1-id': inv.lignes.get(article=self.ciment).pk, 'lignes-1-bon': inv.pk,
+                        'lignes-1-stock_compte': '5'})
+        rep = self.client.post(reverse('admin:stock_inventaire_change', args=[inv.pk]), donnees)
+        self.assertEqual(rep.status_code, 302, rep.content.decode()[:3000])
+        self.assertEqual(inv.lignes.get(article=self.filtre).compte_le, compte.compte_le)
+        self.assertIsNotNone(inv.lignes.get(article=self.ciment).compte_le)
+        self.assertEqual(self.client.get(reverse('admin:stock_inventaire_change', args=[inv.pk])).status_code, 200)
+
+
+class AnnulationTests(JustesseBase):
+    def test_annulation_refusee_apres_un_inventaire(self):
+        # Scénario de l'audit : sortie de 5, inventaire qui compte 5, puis annulation de la sortie.
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        sortie = services.valider(self.sortie(self.filtre, 5), self.user)
+        services.valider(self.inventaire((self.filtre, Decimal('5'), None)), self.user)
+        with self.assertRaisesMessage(services.StockError, 'un inventaire a été fait depuis'):
+            services.annuler(sortie, self.user, 'Erreur')
+        sortie.refresh_from_db()
+        self.assertEqual(sortie.statut, BonSortie.VALIDE)
+        self.assertEqual(self.stock(self.filtre), 5)
+
+    def test_annulation_refusee_apres_une_correction_de_stock(self):
+        entree = self.entree(self.filtre, 10, 1000)
+        self.client.force_login(self.user)
+        self.client.post(reverse('stock:article_corriger', args=[self.filtre.pk]), {'stock_compte': '9'})
+        rep = self.client.post(reverse('stock:bon_annuler', args=['entree', entree.pk]), {'motif': 'Erreur'},
+                               follow=True)
+        self.assertContains(rep, 'un inventaire a été fait depuis')
+        self.assertContains(rep, 'Faites une correction du stock')
+        self.assertEqual(self.stock(self.filtre), 9)
+
+    def test_annulation_permise_si_l_inventaire_est_plus_ancien_ou_sur_un_autre_article(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 1000)
+        self.entree_le(self.il_y_a(days=1), self.ciment, 10, 1000)
+        services.valider(self.inventaire((self.filtre, Decimal('10'), None)), self.user)
+        sortie = services.valider(self.sortie(self.filtre, 2), self.user)
+        services.valider(self.inventaire((self.ciment, Decimal('10'), None)), self.user)
+        services.annuler(sortie, self.user, 'Erreur')
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_qui_quand_pourquoi(self):
+        self.entree(self.filtre, 10, 1000)
+        sortie = services.valider(self.sortie(self.filtre, 2), self.user)
+        services.annuler(sortie, self.magasinier, '  Mauvais chantier  ')
+        sortie.refresh_from_db()
+        self.assertEqual(sortie.annule_par, self.magasinier)
+        self.assertIsNotNone(sortie.date_annulation)
+        self.assertEqual(sortie.motif_annulation, 'Mauvais chantier')
+        self.assertEqual(sortie.valide_par, self.user)  # la validation reste tracée
+        self.assertIsNotNone(sortie.date_validation)
+        brouillon = self.sortie(self.filtre, 1)
+        services.annuler(brouillon, self.user, 'Inutile')
+        brouillon.refresh_from_db()
+        self.assertEqual((brouillon.statut, brouillon.annule_par, brouillon.motif_annulation),
+                         ('ANNULE', self.user, 'Inutile'))
+        self.assertIsNone(brouillon.valide_par)
+
+    def test_motif_obligatoire_et_affiche(self):
+        self.entree(self.filtre, 10, 1000)
+        self.user.first_name = 'Koffi'
+        self.user.save()
+        sortie = services.valider(self.sortie(self.filtre, 2), self.user)
+        self.client.force_login(self.user)
+        url = reverse('stock:bon_detail', args=['sortie', sortie.pk])
+        page = self.client.get(url)
+        self.assertContains(page, 'name="motif"')
+        self.assertContains(page, 'required')
+        rep = self.client.post(reverse('stock:bon_annuler', args=['sortie', sortie.pk]), {'motif': '   '}, follow=True)
+        self.assertContains(rep, "Indiquez le motif de l&#x27;annulation")
+        sortie.refresh_from_db()
+        self.assertEqual(sortie.statut, 'VALIDE')
+        self.client.post(reverse('stock:bon_annuler', args=['sortie', sortie.pk]), {'motif': 'Mauvais <b>chantier</b>'})
+        sortie.refresh_from_db()
+        self.assertEqual(sortie.statut, 'ANNULE')
+        page = self.client.get(url)
+        self.assertContains(page, 'Bon annulé</b> par Koffi le ')
+        self.assertContains(page, ': Mauvais &lt;b&gt;chantier&lt;/b&gt;')
+        self.assertNotContains(page, 'name="motif"')
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_admin_annule_avec_un_motif(self):
+        self.entree(self.filtre, 10, 1000)
+        sortie = services.valider(self.sortie(self.filtre, 2), self.user)
+        self.client.force_login(self.user)
+        self.client.post(reverse('admin:stock_bonsortie_changelist'),
+                         {'action': 'annuler_bons', '_selected_action': [sortie.pk]})
+        sortie.refresh_from_db()
+        self.assertEqual((sortie.statut, sortie.annule_par), ('ANNULE', self.user))
+        self.assertTrue(sortie.motif_annulation)
+
+
+class MessagesStockTests(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.kit = Article.objects.create(code='JT-KIT-320', designation='Kit joints vérin pelle 320',
+                                          categorie=self.cat, unite='JEU')
+        self.entree(self.kit, 1, 85000)
+
+    def test_message_stock_insuffisant_clair(self):
+        with self.assertRaises(services.StockError) as erreur:
+            services.valider(self.sortie(self.kit, 5), self.user)
+        self.assertEqual(erreur.exception.messages, ['Kit joints vérin pelle 320 : il reste 1 JEU, vous en demandez 5.'])
+
+    def test_message_a_l_ecran_sans_numero_fantome(self):
+        self.client.force_login(self.magasinier)
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.kit.pk, self.filtre.pk], 'quantite': ['5', '2,5']})
+        self.assertContains(rep, 'Kit joints vérin pelle 320 : il reste 1 JEU, vous en demandez 5.')
+        self.assertContains(rep, "Filtre à huile Volvo : il n&#x27;en reste plus, vous en demandez 2,5.")
+        self.assertNotContains(rep, 'BS-')
+        self.assertFalse(BonSortie.objects.exists())
+
+    def test_annulation_d_une_entree_deja_sortie(self):
+        entree = self.entree(self.ciment, Decimal('12.5'), 5000)
+        services.valider(self.sortie(self.ciment, 10), self.user)
+        with self.assertRaises(services.StockError) as erreur:
+            services.annuler(entree, self.user, 'Erreur')
+        self.assertEqual(erreur.exception.messages, [
+            "Impossible d'annuler : une partie de la marchandise est déjà sortie.",
+            'Ciment CPJ 45 sac 50 kg : il reste 2,5 SAC, ce bon en a fait entrer 12,5.'])
+
+    def test_autres_messages(self):
+        with self.assertRaisesMessage(services.StockError, 'Le bon ne contient aucun article.'):
+            services.valider(BonSortie.objects.create(chantier=self.chantier, demandeur='Ali'), self.user)
+        inv = services.valider(self.inventaire((self.kit, Decimal('1'), None)), self.user)
+        with self.assertRaisesMessage(services.StockError, 'Un inventaire validé ne peut pas être annulé'):
+            services.annuler(inv, self.user)
+
+    def test_quantite_unite(self):
+        from .utils import quantite_unite
+
+        self.assertEqual(quantite_unite(Decimal('1.000'), 'JEU'), '1 JEU')
+        self.assertEqual(quantite_unite(Decimal('1'), 'U'), '1 unité')
+        self.assertEqual(quantite_unite(Decimal('3'), 'U'), '3 unités')
+        self.assertEqual(quantite_unite(Decimal('12.500'), 'M2'), '12,5 m²')
+        self.assertEqual(quantite_unite(Decimal('1500'), 'SAC'), '1\xa0500 SAC')
+
+
+class DateDesBonsTests(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.entree_le(self.il_y_a(days=20), self.filtre, 10, 1000)
+
+    def jour(self, decalage):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        return timezone.localdate() + timedelta(days=decalage)
+
+    def test_date_du_bon(self):
+        from django import forms
+        from django.utils import timezone
+
+        from .forms import date_du_bon
+
+        maintenant = timezone.localtime()
+        self.assertLess(abs((date_du_bon('') - maintenant).total_seconds()), 5)
+        self.assertLess(abs((date_du_bon(self.jour(0).isoformat()) - maintenant).total_seconds()), 5)
+        hier = timezone.localtime(date_du_bon(self.jour(-1).isoformat()))
+        self.assertEqual(hier.date(), self.jour(-1))
+        self.assertEqual(hier.hour, maintenant.hour)
+        self.assertEqual(timezone.localtime(date_du_bon(self.jour(-7).isoformat())).date(), self.jour(-7))
+        for texte, responsable, message in [
+            (self.jour(1).isoformat(), True, 'futur'),
+            (self.jour(-8).isoformat(), False, '7 jours au plus'),
+            ('31/02/2026', True, 'calendrier'),
+            ('1890-01-01', True, 'trop ancienne'),
+        ]:
+            with self.assertRaisesMessage(forms.ValidationError, message):
+                date_du_bon(texte, responsable)
+        self.assertEqual(timezone.localtime(date_du_bon(self.jour(-60).isoformat(), True)).date(), self.jour(-60))
+
+    def test_formulaire_propose_la_date_du_jour(self):
+        self.client.force_login(self.magasinier)
+        page = self.client.get(reverse('stock:sortie'))
+        self.assertContains(page, f'type="date" value="{self.jour(0).isoformat()}" max="{self.jour(0).isoformat()}"')
+        self.assertContains(page, f'min="{self.jour(-7).isoformat()}"')
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('stock:entree'))
+        self.assertContains(page, 'name="date"')
+        self.assertNotContains(page, 'min="')
+
+    def test_sortie_saisie_apres_coup(self):
+        from django.utils import timezone
+
+        self.client.force_login(self.magasinier)
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Pont', 'demandeur': 'Ali', 'date': self.jour(-3).isoformat(),
+            'article': [self.filtre.pk], 'quantite': ['2']})
+        bon = BonSortie.objects.get()
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['sortie', bon.pk]) + '?nouveau=1')
+        self.assertEqual(timezone.localtime(bon.date).date(), self.jour(-3))
+        mvt = MouvementStock.objects.get(reference=bon.numero)
+        self.assertEqual(timezone.localtime(mvt.date).date(), self.jour(-3))
+        self.assertEqual(timezone.localtime(mvt.date).hour, timezone.localtime().hour)
+        page = self.client.get(rep.url)
+        self.assertContains(page, f'enregistré le {self.jour(0):%d/%m/%Y}')
+        # Le rapport de consommation range la sortie à sa vraie date.
+        rapport = self.client.get(reverse('stock:consommation'), {'du': self.jour(-3).isoformat(),
+                                                                  'au': self.jour(-3).isoformat()})
+        self.assertContains(rapport, 'FH-01')
+
+    def test_entree_saisie_apres_coup_par_un_responsable(self):
+        from django.utils import timezone
+
+        self.client.force_login(self.user)
+        self.client.post(reverse('stock:entree'), {'date': self.jour(-15).isoformat(), 'article': [self.filtre.pk],
+                                                   'quantite': ['5'], 'prix': ['1000']})
+        bon = BonEntree.objects.get(date__gt=self.il_y_a(days=16), date__lt=self.il_y_a(days=14))
+        self.assertEqual(timezone.localtime(MouvementStock.objects.get(reference=bon.numero).date).date(), self.jour(-15))
+
+    def test_dates_refusees_a_l_ecran(self):
+        self.client.force_login(self.magasinier)
+        donnees = {'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['2']}
+        rep = self.client.post(reverse('stock:sortie'), {**donnees, 'date': self.jour(-8).isoformat()})
+        self.assertContains(rep, 'vous pouvez remonter de 7 jours au plus')
+        self.assertContains(rep, f'value="{self.jour(-8).isoformat()}"')  # la saisie est gardée
+        rep = self.client.post(reverse('stock:sortie'), {**donnees, 'date': self.jour(1).isoformat()})
+        self.assertContains(rep, 'dans le futur')
+        rep = self.client.post(reverse('stock:entree'), {'date': 'n importe quoi', 'article': [self.filtre.pk],
+                                                         'quantite': ['1']})
+        self.assertContains(rep, 'choisissez une date dans le calendrier')
+        self.assertFalse(BonSortie.objects.exists())
+        self.assertEqual(BonEntree.objects.count(), 1)
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_stock_apres_suit_l_ordre_des_dates(self):
+        # 20 j : +10 ; aujourd'hui : -3 ; puis une sortie de 2 datée d'il y a 2 jours, saisie en dernier.
+        services.valider(self.sortie(self.filtre, 3), self.user)
+        self.sortie_le(self.il_y_a(days=2), self.filtre, 2)
+        self.entree_le(self.il_y_a(days=5), self.filtre, 4, 1000)
+        historique = list(MouvementStock.objects.filter(article=self.filtre).order_by('date', 'id'))
+        self.assertEqual([m.quantite for m in historique], [10, 4, -2, -3])
+        self.assertEqual([m.stock_apres for m in historique], [10, 14, 12, 9])
+        self.assertEqual(self.stock(self.filtre), 9)
+
+
+class BrouillonsTests(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.entree(self.filtre, 10, 1000)
+        self.brouillon = self.sortie(self.filtre, 4)
+        self.url = reverse('stock:bon_detail', args=['sortie', self.brouillon.pk])
+
+    def test_responsable_valide_le_brouillon(self):
+        self.client.force_login(self.user)
+        page = self.client.get(self.url)
+        self.assertContains(page, "le stock n'a pas encore changé")
+        self.assertContains(page, reverse('stock:bon_valider', args=['sortie', self.brouillon.pk]))
+        self.assertContains(page, reverse('stock:bon_supprimer', args=['sortie', self.brouillon.pk]))
+        self.assertNotContains(page, 'Annuler ce bon')
+        rep = self.client.post(reverse('stock:bon_valider', args=['sortie', self.brouillon.pk]), follow=True)
+        self.assertRedirects(rep, self.url)
+        self.assertContains(rep, 'est validé')
+        self.brouillon.refresh_from_db()
+        self.assertEqual((self.brouillon.statut, self.brouillon.valide_par), ('VALIDE', self.user))
+        self.assertEqual(self.stock(self.filtre), 6)
+        self.assertNotContains(rep, reverse('stock:bon_valider', args=['sortie', self.brouillon.pk]))
+
+    def test_validation_refusee_affiche_le_message(self):
+        LigneSortie.objects.create(bon=self.brouillon, article=self.filtre, quantite=7)
+        self.client.force_login(self.user)
+        rep = self.client.post(reverse('stock:bon_valider', args=['sortie', self.brouillon.pk]), follow=True)
+        self.assertContains(rep, 'Filtre à huile Volvo : il reste 10 unités, vous en demandez 11.')
+        self.brouillon.refresh_from_db()
+        self.assertEqual(self.brouillon.statut, 'BROUILLON')
+
+    def test_responsable_supprime_le_brouillon(self):
+        self.client.force_login(self.user)
+        rep = self.client.post(reverse('stock:bon_supprimer', args=['sortie', self.brouillon.pk]), follow=True)
+        self.assertRedirects(rep, reverse('stock:bons'))
+        self.assertContains(rep, 'supprimé')
+        self.assertFalse(BonSortie.objects.filter(pk=self.brouillon.pk).exists())
+        self.assertFalse(LigneSortie.objects.exists())
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_un_bon_valide_ne_se_supprime_pas(self):
+        bon = BonEntree.objects.get()
+        self.client.force_login(self.user)
+        rep = self.client.post(reverse('stock:bon_supprimer', args=['entree', bon.pk]), follow=True)
+        self.assertContains(rep, 'seul un brouillon peut être supprimé')
+        self.assertTrue(BonEntree.objects.filter(pk=bon.pk).exists())
+        self.assertEqual(self.client.get(reverse('stock:bon_supprimer', args=['entree', bon.pk])).status_code, 405)
+
+    def test_magasinier_ne_valide_ni_ne_supprime(self):
+        self.client.force_login(self.magasinier)
+        page = self.client.get(self.url)
+        self.assertContains(page, 'Un responsable doit le valider')
+        self.assertNotContains(page, reverse('stock:bon_valider', args=['sortie', self.brouillon.pk]))
+        for nom in ['bon_valider', 'bon_supprimer']:
+            rep = self.client.post(reverse(f'stock:{nom}', args=['sortie', self.brouillon.pk]))
+            self.assertRedirects(rep, reverse('stock:accueil'))
+        self.brouillon.refresh_from_db()
+        self.assertEqual(self.brouillon.statut, 'BROUILLON')
+
+    def test_inventaire_brouillon_valide_depuis_l_ecran(self):
+        inv = self.inventaire((self.filtre, Decimal('9'), None), (self.ciment, None, None))
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('stock:bon_detail', args=['inventaire', inv.pk]))
+        self.assertContains(page, 'non compté')
+        self.client.post(reverse('stock:bon_valider', args=['inventaire', inv.pk]))
+        self.assertEqual(self.stock(self.filtre), 9)
+        page = self.client.get(reverse('stock:bon_detail', args=['inventaire', inv.pk]))
+        self.assertContains(page, '<b>-1</b>')
+
+
+# =========================================================
+# Saisie des bons sans erreur : ligne non choisie, chantier et engin, préremplissage, création rapide, impression
+# =========================================================
+
+class SaisieBonsTests(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.magasinier)
+        self.entree(self.filtre, 10, 1000)
+
+    def sortir(self, **donnees):
+        return self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Pont', 'demandeur': 'Ali', 'article': [self.filtre.pk], 'quantite': ['1'], **donnees})
+
+    def test_ligne_tapee_mais_pas_choisie_revient_avec_texte_et_quantite(self):
+        rep = self.client.post(reverse('stock:entree'), {
+            'article': [self.filtre.pk, ''], 'article_texte': ['Filtre à huile Volvo (FH-01)', 'ciment  colle'],
+            'quantite': ['2', '5'], 'prix': ['1000', '3 500'],
+        })
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, 'Ligne 2 : « ciment colle » n&#x27;est pas choisi')
+        lignes = rep.context['lignes_initiales']
+        self.assertEqual([l.get('id') for l in lignes], [self.filtre.pk, None])
+        self.assertEqual(lignes[1], {'texte': 'ciment colle', 'quantite': '5', 'prix_saisi': '3 500'})
+        self.assertContains(rep, 'data-modifie')  # saisie toujours protégée après l'erreur
+        self.assertEqual(BonEntree.objects.count(), 1)  # seulement l'entrée du départ
+
+    def test_ligne_sans_article_ni_texte_mais_avec_quantite(self):
+        rep = self.sortir(article=[''], article_texte=[''], quantite=['3'])
+        self.assertContains(rep, 'Ligne 1 : choisissez un article dans la liste.')
+        self.assertEqual(rep.context['lignes_initiales'], [{'texte': '', 'quantite': '3', 'prix_saisi': ''}])
+        self.assertFalse(BonSortie.objects.exists())
+
+    def test_chantier_avec_espaces_en_trop_et_casse_differente(self):
+        rep = self.sortir(chantier='  pONT  ')
+        self.assertEqual(BonSortie.objects.get().chantier, self.chantier)
+        self.assertEqual(Chantier.objects.count(), 1)
+        self.assertEqual(rep.status_code, 302)
+
+    def test_faute_de_frappe_sur_le_chantier_propose_le_bon_nom(self):
+        Chantier.objects.create(nom='Chantier Pont de Bingerville')
+        rep = self.sortir(chantier='Chantier Pont de Bingervile')
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, 'Nouveau chantier ?')
+        self.assertContains(rep, 'Vouliez-vous dire')
+        self.assertContains(rep, 'data-valeur="Chantier Pont de Bingerville"')
+        self.assertContains(rep, 'name="creer_chantier" value="Chantier Pont de Bingervile"')
+        self.assertContains(rep, 'Le chantier « Chantier Pont de Bingervile » n&#x27;existe pas encore')
+        self.assertFalse(Chantier.objects.filter(nom='Chantier Pont de Bingervile').exists())
+        self.assertFalse(BonSortie.objects.exists())
+        # La case cochée pour un autre nom ne vaut pas confirmation.
+        self.sortir(chantier='Chantier Pont de Bingervile', creer_chantier='Autre chantier')
+        self.assertFalse(BonSortie.objects.exists())
+        rep = self.sortir(chantier='Chantier Pont de Bingervile', creer_chantier='Chantier Pont de Bingervile')
+        self.assertEqual(rep.status_code, 302)
+        self.assertEqual(BonSortie.objects.get().chantier.nom, 'Chantier Pont de Bingervile')
+
+    def test_chantier_cree_mais_stock_refuse_garde_la_case_cochee(self):
+        rep = self.sortir(chantier='Ecole', creer_chantier='Ecole', quantite=['50'])
+        self.assertContains(rep, 'il reste 10 unités, vous en demandez 50')
+        self.assertContains(rep, 'value="Ecole" checked')
+        self.assertFalse(Chantier.objects.filter(nom='Ecole').exists())
+
+    def test_chantier_cloture_refuse(self):
+        Chantier.objects.create(nom='Ancien chantier', actif=False)
+        rep = self.sortir(chantier='ancien chantier', creer_chantier='ancien chantier')
+        self.assertContains(rep, 'Le chantier « Ancien chantier » est clôturé')
+        self.assertFalse(BonSortie.objects.exists())
+        self.assertEqual(Chantier.objects.filter(nom__iexact='ancien chantier').count(), 1)
+
+    def test_engin_inconnu_inactif_et_existant(self):
+        from .models import Engin
+
+        Engin.objects.create(code='PEL-320')
+        Engin.objects.create(code='CAM-01', actif=False)
+        rep = self.sortir(engin='PEL-302')
+        self.assertContains(rep, 'Nouvel engin ?')
+        self.assertContains(rep, 'data-valeur="PEL-320"')
+        self.assertContains(rep, 'name="creer_engin"')
+        rep = self.sortir(engin='cam-01')
+        self.assertContains(rep, 'L&#x27;engin « CAM-01 » n&#x27;est plus en service')
+        self.assertFalse(BonSortie.objects.exists())
+        self.sortir(engin=' pel-320 ')
+        self.assertEqual(BonSortie.objects.get().engin.code, 'PEL-320')
+        self.sortir(engin='PEL-302', creer_engin='PEL-302')
+        self.assertTrue(Engin.objects.filter(code='PEL-302').exists())
+        self.assertEqual(Engin.objects.count(), 3)
+
+    def test_sortie_ou_entree_d_un_article_depuis_sa_fiche(self):
+        page = self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk]))
+        self.assertContains(page, f'/sortie/?article={self.filtre.pk}')
+        self.assertContains(page, f'/entree/?article={self.filtre.pk}')
+        self.assertContains(page, 'data-proteger')
+        for nom in ['sortie', 'entree']:
+            rep = self.client.get(reverse(f'stock:{nom}'), {'article': self.filtre.pk})
+            [ligne] = rep.context['lignes_initiales']
+            self.assertEqual((ligne['id'], ligne['code']), (self.filtre.pk, 'FH-01'))
+            self.assertContains(rep, 'data-proteger')
+        for valeur in ['abc', '999999', '9' * 40]:
+            rep = self.client.get(reverse('stock:sortie'), {'article': valeur, 'depuis': valeur})
+            self.assertEqual(rep.context['lignes_initiales'], [])
+        self.filtre.actif = False
+        self.filtre.save()
+        self.assertEqual(self.client.get(reverse('stock:sortie'), {'article': self.filtre.pk}).context['lignes_initiales'], [])
+        self.assertNotContains(self.client.get(reverse('stock:article_modifier', args=[self.filtre.pk])), '/sortie/?article=')
+
+    def test_refaire_une_sortie(self):
+        from .models import Engin
+
+        self.entree(self.ciment, 20, 5000)
+        self.sortir(engin='PEL-1', creer_engin='PEL-1', observation='Dalle', article=[self.filtre.pk, self.ciment.pk],
+                    quantite=['2', '1,5'])
+        bon = BonSortie.objects.get()
+        detail = self.client.get(reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertContains(detail, f'/sortie/?depuis={bon.pk}')
+        self.assertContains(detail, 'Refaire ce bon')
+        rep = self.client.get(reverse('stock:sortie'), {'depuis': bon.pk})
+        self.assertEqual({k: rep.context['valeurs'][k] for k in ['chantier', 'engin', 'demandeur', 'observation']},
+                         {'chantier': 'Pont', 'engin': 'PEL-1', 'demandeur': 'Ali', 'observation': 'Dalle'})
+        self.assertEqual([(l['id'], l['quantite']) for l in rep.context['lignes_initiales']],
+                         [(self.filtre.pk, '2'), (self.ciment.pk, '1,5')])
+        self.assertContains(rep, f'Copie de {bon.numero}')
+        # Chantier clôturé et engin retiré depuis : pas recopiés, on prévient.
+        Chantier.objects.update(actif=False)
+        Engin.objects.update(actif=False)
+        rep = self.client.get(reverse('stock:sortie'), {'depuis': bon.pk})
+        self.assertEqual((rep.context['valeurs']['chantier'], rep.context['valeurs']['engin']), ('', ''))
+        self.assertContains(rep, 'est clôturé : choisissez le chantier')
+        Article.objects.filter(pk=self.ciment.pk).update(actif=False)
+        rep = self.client.get(reverse('stock:sortie'), {'depuis': bon.pk})
+        self.assertEqual([l['id'] for l in rep.context['lignes_initiales']], [self.filtre.pk])
+        self.assertContains(rep, 'Articles désactivés, non recopiés : 1.')
+
+    def test_refaire_une_entree(self):
+        self.client.post(reverse('stock:entree'), {'fournisseur': '  Cfao   Motors ', 'reference': 'BL-9',
+                                                   'article': [self.filtre.pk], 'quantite': ['4'], 'prix': ['1 250,5']})
+        bon = BonEntree.objects.latest('pk')
+        self.assertEqual(bon.fournisseur.nom, 'Cfao Motors')
+        rep = self.client.get(reverse('stock:entree'), {'depuis': bon.pk})
+        self.assertEqual(rep.context['valeurs']['fournisseur'], 'Cfao Motors')
+        self.assertNotIn('reference', rep.context['valeurs'])  # le n° de BL change à chaque livraison
+        [ligne] = rep.context['lignes_initiales']
+        self.assertEqual((ligne['quantite'], ligne['prix_saisi']), ('4', '1\xa0250,5'))
+
+    def test_apres_enregistrement_imprimer_le_bon(self):
+        rep = self.sortir()
+        bon = BonSortie.objects.get()
+        self.assertTrue(rep.url.endswith('?nouveau=1'))
+        page = self.client.get(rep.url)
+        self.assertContains(page, 'Imprimer le bon')
+        self.assertContains(page, 'id="imprimer-bon" autofocus')
+        self.assertContains(page, 'Imprimez-le pour le faire signer')
+        self.assertContains(page, 'btn btn-vert btn-grand" id="imprimer-bon"')
+        page = self.client.get(reverse('stock:bon_detail', args=['sortie', bon.pk]))
+        self.assertNotContains(page, 'Imprimer le bon')
+        self.assertNotContains(page, 'Imprimez-le pour le faire signer')
+        # Bon annulé : plus d'invitation à l'imprimer pour signature.
+        services.annuler(bon, self.user, 'Erreur')
+        self.assertNotContains(self.client.get(rep.url), 'Imprimez-le pour le faire signer')
+
+    def test_sortie_bloquee_si_stock_manque_cote_ecran(self):
+        page = self.client.get(reverse('stock:sortie'))
+        self.assertContains(page, 'id="raison-bloque"')
+        self.assertContains(page, 'name="jeton"')
+        self.assertContains(self.client.get(reverse('stock:accueil')), 'beforeunload')
+
+
+class CreationRapideArticleTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.magasinier = get_user_model().objects.create_user('awa', password='Magasin-2026!')
+        self.client.force_login(self.magasinier)
+        self.url = reverse('stock:api_article_creer')
+
+    def creer(self, **donnees):
+        import json
+
+        return self.client.post(self.url, json.dumps(donnees), content_type='application/json')
+
+    def test_creation_avec_code_automatique(self):
+        rep = self.creer(designation='  Tôle   ondulée 2 m ', unite='FEUILLE', categorie='Matériaux')
+        self.assertEqual(rep.status_code, 201)
+        article = Article.objects.get(designation='Tôle ondulée 2 m')
+        self.assertEqual(rep.json()['article']['id'], article.pk)
+        self.assertEqual(article.code, 'MAT-0001')
+        self.assertEqual((article.unite, article.categorie.nom, article.actif, article.stock), ('FEUILLE', 'Matériaux', True, 0))
+        page = self.client.get(reverse('stock:entree'))
+        self.assertContains(page, 'id="creer-article"')
+        self.assertContains(page, '<option value="FEUILLE">Feuille</option>', html=True)
+
+    def test_saisies_refusees(self):
+        rep = self.creer(designation='', unite='U', categorie='')
+        self.assertEqual(rep.status_code, 400)
+        self.assertIn('Désignation : ce champ est obligatoire.', rep.json()['erreurs'])
+        self.assertIn('Catégorie : ce champ est obligatoire.', rep.json()['erreurs'])
+        rep = self.creer(designation='Truc', unite='XXL', categorie='Divers')
+        self.assertEqual(rep.status_code, 400)
+        self.assertTrue(rep.json()['erreurs'][0].startswith('Unité'))
+        rep = self.creer(designation='filtre à huile VOLVO', unite='U', categorie='Filtres')
+        self.assertEqual(rep.status_code, 400)
+        self.assertIn('existe déjà (FH-01)', rep.json()['erreurs'][0])
+        rep = self.client.post(self.url, 'pas du json', content_type='application/json')
+        self.assertEqual(rep.status_code, 400)
+        rep = self.client.post(self.url, '[1, 2]', content_type='application/json')
+        self.assertEqual(rep.status_code, 400)
+        self.assertEqual(Article.objects.count(), 2)
+
+    def test_reserve_aux_comptes_connectes_en_post_avec_csrf(self):
+        from django.test import Client
+
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        anonyme = self.client_class()
+        self.assertEqual(anonyme.post(self.url, '{}', content_type='application/json').status_code, 302)
+        strict = Client(enforce_csrf_checks=True)
+        strict.force_login(self.magasinier)
+        self.assertEqual(strict.post(self.url, '{"designation": "X", "categorie": "Y"}',
+                                     content_type='application/json').status_code, 403)
+        self.assertEqual(Article.objects.count(), 2)
+
+
+# =========================================================
+# Retour de chantier
+# =========================================================
+from django.db.models import Sum  # noqa: E402
+
+from .models import BonRetour, Engin, LigneRetour  # noqa: E402
+
+
+class RetourChantierBase(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.engin = Engin.objects.create(code='PEL-01', designation='Pelle')
+        self.route = Chantier.objects.create(nom='Route')
+        self.entree(self.ciment, 100, 5000)
+
+    def sortir(self, *lignes, chantier=None):
+        bon = BonSortie.objects.create(chantier=chantier or self.chantier, engin=self.engin, demandeur='Ali')
+        for article, qte in lignes:
+            LigneSortie.objects.create(bon=bon, article=article, quantite=qte)
+        return services.valider(bon, self.user)
+
+    def rendre(self, *lignes, chantier=None, valider=True):
+        bon = BonRetour.objects.create(chantier=chantier or self.chantier, engin=self.engin, rapporte_par='Koffi')
+        for article, qte in lignes:
+            LigneRetour.objects.create(bon=bon, article=article, quantite=qte)
+        return services.valider(bon, self.user) if valider else bon
+
+    def consommation(self, article, chantier=None):
+        """Convention de signe : consommation d'un chantier = −Σ quantite (SORTIE, RETOUR, ANNULATION)."""
+        types = [MouvementStock.SORTIE, MouvementStock.RETOUR, MouvementStock.ANNULATION]
+        total = MouvementStock.objects.filter(chantier=chantier or self.chantier, article=article, type__in=types)
+        return -(total.aggregate(s=Sum('quantite'))['s'] or 0)
+
+
+class RetourChantierStockTests(RetourChantierBase):
+    def test_numerotation_br(self):
+        premier = self.rendre(valider=False)
+        second = self.rendre(valider=False)
+        self.assertEqual(premier.numero, f'BR-{premier.date:%Y}-00001')  # suite propre aux retours
+        self.assertRegex(second.numero, r'^BR-\d{4}-\d{5}$')
+        self.assertEqual(second.numero, f'BR-{second.date:%Y}-{second.pk:05d}')
+        self.assertTrue(BonEntree.objects.get().numero.startswith('BE-'))
+
+    def test_retour_partiel_remonte_le_stock_sans_changer_le_prix_moyen(self):
+        self.sortir((self.ciment, 30))
+        self.entree(self.ciment, 50, 6000)  # 70 à 5000 + 50 à 6000 → 120 à 5416,67
+        self.ciment.refresh_from_db()
+        self.assertEqual(self.ciment.prix_moyen, Decimal('5416.67'))
+        bon = self.rendre((self.ciment, 10))
+        self.ciment.refresh_from_db()
+        self.assertEqual((self.ciment.stock, self.ciment.prix_moyen), (130, Decimal('5416.67')))
+        self.assertEqual(bon.statut, BonRetour.VALIDE)
+        self.assertEqual(bon.lignes.get().prix_unitaire, Decimal('5416.67'))  # figé au prix moyen du moment
+        mvt = MouvementStock.objects.get(type=MouvementStock.RETOUR)
+        self.assertEqual((mvt.quantite, mvt.stock_apres, mvt.prix_unitaire), (10, 130, Decimal('5416.67')))
+        self.assertEqual((mvt.chantier, mvt.engin, mvt.reference), (self.chantier, self.engin, bon.numero))
+        self.assertEqual(self.consommation(self.ciment), 20)  # 30 sortis − 10 revenus
+
+    def test_on_ne_rend_pas_plus_que_ce_qui_est_parti(self):
+        self.sortir((self.ciment, 30))
+        trop = self.rendre((self.ciment, 31), valider=False)
+        with self.assertRaisesMessage(services.StockError, 'On ne peut pas rendre plus que ce que le chantier « Pont » a reçu'):
+            services.valider(trop, self.user)
+        trop.refresh_from_db()
+        self.assertEqual(trop.statut, BonRetour.BROUILLON)
+        self.assertEqual(self.stock(self.ciment), 70)
+        self.assertFalse(MouvementStock.objects.filter(type=MouvementStock.RETOUR).exists())
+        self.rendre((self.ciment, 20))
+        with self.assertRaisesMessage(services.StockError, 'le chantier en a reçu 10 SAC (retours déjà faits déduits)'):
+            self.rendre((self.ciment, 11))
+        self.rendre((self.ciment, 4), (self.ciment, 6))  # deux lignes du même article : 10 en tout
+        self.assertEqual(self.stock(self.ciment), 100)
+        self.assertEqual(self.consommation(self.ciment), 0)
+
+    def test_retour_d_un_chantier_qui_n_a_rien_recu(self):
+        self.sortir((self.ciment, 30))
+        with self.assertRaisesMessage(services.StockError, "rien n'est parti sur ce chantier"):
+            self.rendre((self.ciment, 5), chantier=self.route)
+        self.assertEqual(self.stock(self.ciment), 70)
+
+    def test_annulation_d_un_retour(self):
+        self.sortir((self.ciment, 30))
+        bon = self.rendre((self.ciment, 10))
+        services.annuler(bon, self.user, 'Quantité fausse')
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, BonRetour.ANNULE)
+        self.ciment.refresh_from_db()
+        self.assertEqual((self.ciment.stock, self.ciment.prix_moyen), (70, Decimal('5000.00')))
+        annulation = MouvementStock.objects.get(type=MouvementStock.ANNULATION)
+        self.assertEqual((annulation.quantite, annulation.chantier, annulation.engin), (-10, self.chantier, self.engin))
+        self.assertEqual(self.consommation(self.ciment), 30)
+        self.rendre((self.ciment, 30))  # tout peut de nouveau revenir
+
+    def test_annulation_d_un_retour_refusee_si_la_marchandise_est_ressortie(self):
+        self.entree(self.filtre, 5, 1000)
+        self.sortir((self.filtre, 5))
+        bon = self.rendre((self.filtre, 2))
+        self.sortir((self.filtre, 2), chantier=self.route)
+        with self.assertRaisesMessage(services.StockError, 'déjà ressortie du magasin'):
+            services.annuler(bon, self.user, 'Erreur')
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, BonRetour.VALIDE)
+        self.assertEqual(self.stock(self.filtre), 0)
+
+    def test_annulation_d_une_sortie_deja_revenue_en_partie(self):
+        sortie = self.sortir((self.ciment, 30))
+        bon = self.rendre((self.ciment, 10))
+        with self.assertRaisesMessage(services.StockError, f'déjà revenue du chantier ({bon.numero})'):
+            services.annuler(sortie, self.user, 'Erreur')
+        self.assertEqual(self.stock(self.ciment), 80)
+        services.annuler(bon, self.user, 'Erreur')
+        services.annuler(sortie, self.user, 'Erreur')
+        self.assertEqual(self.stock(self.ciment), 100)
+        self.assertEqual(self.consommation(self.ciment), 0)
+
+    def test_annulation_d_une_autre_sortie_du_meme_chantier_reste_possible(self):
+        premiere = self.sortir((self.ciment, 30))
+        self.sortir((self.ciment, 30))
+        self.rendre((self.ciment, 10))
+        services.annuler(premiere, self.user, 'Doublon')  # 50 encore sur le chantier ≥ 30
+        self.assertEqual(self.stock(self.ciment), 80)
+        self.assertEqual(self.consommation(self.ciment), 20)
+
+    def test_inventaire_garde_un_retour_fait_apres_le_comptage(self):
+        from django.utils import timezone
+
+        self.sortir((self.ciment, 30))
+        inv = self.inventaire((self.ciment, Decimal('70'), timezone.now()))
+        self.rendre((self.ciment, 10))
+        services.valider(inv, self.user)
+        self.assertEqual(self.stock(self.ciment), 80)
+
+    def test_reste_sur_chantier(self):
+        self.entree(self.filtre, 5, 1000)
+        self.sortir((self.ciment, 30), (self.filtre, 3))
+        self.sortir((self.ciment, 5), chantier=self.route)
+        self.rendre((self.ciment, 12))
+        reste = services.reste_sur_chantier(self.chantier)
+        self.assertEqual((reste[self.ciment.pk], reste[self.filtre.pk]), (18, 3))
+        self.assertEqual(services.reste_sur_chantier(self.route, [self.ciment.pk])[self.ciment.pk], 5)
+
+
+class RetourChantierEcransTests(RetourChantierBase):
+    def setUp(self):
+        super().setUp()
+        self.entree(self.filtre, 10, 1000)
+        self.sortie_bon = self.sortir((self.ciment, 30), (self.filtre, 4))
+        self.client.force_login(self.magasinier)
+
+    def rendre_ecran(self, **donnees):
+        return self.client.post(reverse('stock:retour'), {
+            'chantier': 'Pont', 'engin': 'PEL-01', 'rapporte_par': 'Koffi',
+            'article': [self.ciment.pk], 'quantite': ['5'], **donnees})
+
+    def test_menu_et_bouton_retour_de_ce_bon(self):
+        accueil = self.client.get(reverse('stock:accueil'))
+        self.assertContains(accueil, f'href="{reverse("stock:retour")}"')
+        self.assertContains(accueil, 'Retour de chantier')
+        detail = self.client.get(reverse('stock:bon_detail', args=['sortie', self.sortie_bon.pk]))
+        self.assertContains(detail, f'{reverse("stock:retour")}?sortie={self.sortie_bon.pk}')
+        self.assertContains(detail, 'Retour de ce bon')
+        services.annuler(self.sortir((self.ciment, 1)), self.user, 'Erreur')
+        annulee = BonSortie.objects.get(statut=BonSortie.ANNULE)
+        detail = self.client.get(reverse('stock:bon_detail', args=['sortie', annulee.pk]))
+        self.assertNotContains(detail, 'Retour de ce bon')
+
+    def test_retour_prerempli_depuis_la_sortie(self):
+        rep = self.client.get(reverse('stock:retour'), {'sortie': self.sortie_bon.pk})
+        self.assertEqual(rep.status_code, 200)
+        self.assertEqual((rep.context['valeurs']['chantier'], rep.context['valeurs']['engin']), ('Pont', 'PEL-01'))
+        lignes = rep.context['lignes_initiales']
+        self.assertEqual([l['id'] for l in lignes], [self.ciment.pk, self.filtre.pk])
+        self.assertEqual({l['quantite'] for l in lignes}, {''})  # quantités à taper
+        self.assertContains(rep, f'name="sortie" value="{self.sortie_bon.pk}"')
+        self.assertContains(rep, 'Quantité rapportée')
+        self.assertContains(rep, 'Enregistrer le retour')
+        self.assertIn('Pont', rep.context['chantiers'])
+        self.assertNotIn('Route', rep.context['chantiers'])  # rien n'y est parti
+
+    def test_enregistrement_d_un_retour_partiel(self):
+        rep = self.rendre_ecran(sortie=self.sortie_bon.pk, article=[self.ciment.pk, self.filtre.pk],
+                                quantite=['12', ''])
+        bon = BonRetour.objects.get()
+        self.assertRedirects(rep, reverse('stock:bon_detail', args=['retour', bon.pk]) + '?nouveau=1')
+        self.assertEqual((bon.sortie, bon.chantier, bon.engin, bon.rapporte_par), (self.sortie_bon, self.chantier, self.engin, 'Koffi'))
+        self.assertEqual((bon.cree_par, bon.valide_par), (self.magasinier, self.magasinier))
+        self.assertEqual([(l.article, l.quantite) for l in bon.lignes.all()], [(self.ciment, 12)])  # ligne vide ignorée
+        self.assertEqual((self.stock(self.ciment), self.stock(self.filtre)), (82, 6))
+        detail = self.client.get(rep['Location'])
+        self.assertContains(detail, f'Bon de retour {bon.numero}')
+        self.assertContains(detail, 'Rapporté par')
+        self.assertContains(detail, 'par la personne qui rapporte la marchandise (Koffi)')
+        self.assertContains(detail, self.sortie_bon.numero)
+        self.assertNotContains(detail, 'Annuler ce bon')  # magasinier
+        sortie = self.client.get(reverse('stock:bon_detail', args=['sortie', self.sortie_bon.pk]))
+        self.assertContains(sortie, 'Retours de ce bon')
+        self.assertContains(sortie, bon.numero)
+
+    def test_erreurs_de_saisie(self):
+        rep = self.rendre_ecran(chantier='', rapporte_par=' ', quantite=[''])
+        self.assertEqual(rep.context['erreurs'][:3], [
+            "Indiquez le chantier d'où revient la marchandise.", 'Indiquez qui rapporte la marchandise.',
+            'Indiquez la quantité rapportée pour au moins un article.'])
+        rep = self.rendre_ecran(chantier='Pnt')
+        self.assertIn('Le chantier « Pnt » n\'existe pas', rep.context['erreurs'][0])
+        self.assertEqual(rep.context['nouveau_chantier']['proches'], ['Pont'])
+        self.assertNotContains(rep, 'name="creer_chantier"')  # pas de création d'un chantier par un retour
+        rep = self.rendre_ecran(quantite=['31'])
+        self.assertIn('On ne peut pas rendre plus que ce que le chantier « Pont » a reçu.', rep.context['erreurs'])
+        self.assertEqual(rep.context['lignes_initiales'][0]['quantite'], '31')
+        rep = self.rendre_ecran(quantite=['abc'])
+        self.assertIn('n\'est pas un nombre', rep.context['erreurs'][0])
+        self.assertFalse(BonRetour.objects.exists())
+        self.assertEqual(Chantier.objects.count(), 2)
+        self.assertEqual(self.stock(self.ciment), 70)
+
+    def test_chantier_cloture_peut_rendre_son_reste(self):
+        self.chantier.actif = False
+        self.chantier.save()
+        self.rendre_ecran(chantier='pont ')
+        self.assertEqual(BonRetour.objects.get().chantier, self.chantier)
+        self.assertEqual(self.stock(self.ciment), 75)
+
+    def test_sortie_d_origine_oubliee_si_le_chantier_change(self):
+        self.sortir((self.ciment, 10), chantier=self.route)
+        self.rendre_ecran(chantier='Route', sortie=self.sortie_bon.pk)
+        self.assertIsNone(BonRetour.objects.get().sortie)
+
+    def test_retour_date_avant_la_sortie_refuse(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        ancienne = self.sortie_le(self.il_y_a(days=2), self.ciment, 3)
+        avant = (timezone.localdate() - timedelta(days=4)).isoformat()
+        rep = self.rendre_ecran(sortie=ancienne.pk, date=avant)
+        self.assertIn('ne peut pas être daté avant la sortie', rep.context['erreurs'][0])
+        self.assertFalse(BonRetour.objects.exists())
+
+    def test_double_envoi(self):
+        jeton = self.client.get(reverse('stock:retour')).context['jeton']
+        premier = self.rendre_ecran(jeton=jeton)
+        second = self.rendre_ecran(jeton=jeton)
+        self.assertEqual(BonRetour.objects.count(), 1)
+        self.assertEqual(second['Location'], reverse('stock:bon_detail', args=['retour', BonRetour.objects.get().pk]))
+        self.assertEqual(premier.status_code, 302)
+        self.assertEqual(self.stock(self.ciment), 75)
+
+    def test_reste_sur_le_chantier_pour_l_ecran(self):
+        self.rendre((self.ciment, 12))
+        donnees = self.client.get(reverse('stock:api_reste_chantier'), {'chantier': ' pont'}).json()
+        self.assertEqual(donnees['chantier'], 'Pont')
+        self.assertEqual({pk: (Decimal(q), txt) for pk, (q, txt) in donnees['reste'].items()},
+                         {str(self.ciment.pk): (18, '18'), str(self.filtre.pk): (4, '4')})
+        self.assertEqual(self.client.get(reverse('stock:api_reste_chantier'), {'chantier': 'Inconnu'}).json(),
+                         {'chantier': None, 'reste': {}})
+
+    def test_droits_annulation_reservee_aux_responsables(self):
+        self.rendre_ecran()
+        bon = BonRetour.objects.get()
+        url = reverse('stock:bon_annuler', args=['retour', bon.pk])
+        self.assertRedirects(self.client.post(url, {'motif': 'Erreur'}), reverse('stock:accueil'))
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, BonRetour.VALIDE)
+        self.client.force_login(self.user)
+        detail = self.client.get(reverse('stock:bon_detail', args=['retour', bon.pk]))
+        self.assertContains(detail, 'Annuler ce bon')
+        self.client.post(url, {'motif': 'Erreur de quantité'})
+        bon.refresh_from_db()
+        self.assertEqual((bon.statut, bon.annule_par, bon.motif_annulation), (BonRetour.ANNULE, self.user, 'Erreur de quantité'))
+        self.assertEqual(self.stock(self.ciment), 70)
+
+    def test_pdf_du_bon_de_retour(self):
+        self.rendre_ecran(sortie=self.sortie_bon.pk)
+        bon = BonRetour.objects.get()
+        pdf = self.client.get(reverse('stock:bon_pdf', args=['bonretour', bon.pk]))  # magasinier
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf['Content-Type'], 'application/pdf')
+        self.assertTrue(pdf.content.startswith(b'%PDF'))
+        self.assertIn(bon.numero, pdf['Content-Disposition'])
+        from .pdf import GENERATEURS, _bon_retour
+
+        textes = [getattr(e, 'text', '') for e in _bon_retour(bon)]
+        self.assertIn(f'BON DE RETOUR DE CHANTIER N° {bon.numero}', textes)
+        self.assertIs(GENERATEURS[BonRetour], _bon_retour)
+        services.annuler(bon, self.user, 'Erreur')
+        self.assertEqual(self.client.get(reverse('stock:bon_pdf', args=['bonretour', bon.pk])).status_code, 200)
+
+    def test_historique_et_recherche_par_numero(self):
+        self.rendre_ecran()
+        bon = BonRetour.objects.get()
+        liste = self.client.get(reverse('stock:bons'))
+        self.assertContains(liste, bon.numero)
+        self.assertContains(liste, 'badge-retour')
+        self.assertContains(liste, reverse('stock:bon_detail', args=['retour', bon.pk]))
+        retours = self.client.get(reverse('stock:bons'), {'type': 'retour'})
+        self.assertEqual([b for b, _ in retours.context['bons']], [bon])
+        trouve = self.client.get(reverse('stock:bons'), {'q': 'BR-'})
+        self.assertEqual([(b.numero, t) for b, t in trouve.context['bons']], [(bon.numero, 'retour')])
+        trouve = self.client.get(reverse('stock:bons'), {'q': 'koffi', 'type': 'retour'})
+        self.assertEqual(len(trouve.context['bons']), 1)
+
+
+# =========================================================
+# Inventaire dans l'interface simple : périmètre, comptage au téléphone, validation, fiches PDF
+# =========================================================
+
+class InventaireEcransBase(JustesseBase):
+    def setUp(self):
+        super().setUp()
+        self.joint = Article.objects.create(code='JT-01', designation='Joint torique', categorie=self.cat,
+                                            etagere=self.etagere, niveau=1)
+        Article.objects.create(code='OLD-01', designation='Ancien filtre', categorie=self.cat, etagere=self.etagere,
+                               niveau=1, actif=False)
+        self.bloc_b = Bloc.objects.create(code='B', nom='Pneus')
+        self.p1 = Etagere.objects.create(bloc=self.bloc_b, code='P1')
+        self.pneu = Article.objects.create(code='PN-01', designation='Pneu 12.00 R20', categorie=self.cat,
+                                           etagere=self.p1, niveau=1)
+        self.entree(self.filtre, 10, 1000)
+        self.entree(self.ciment, 50, 5000)
+        self.entree(self.pneu, 4, 100000)
+
+    def creer(self, **donnees):
+        self.client.force_login(self.user)
+        return self.client.post(reverse('stock:inventaire_nouveau'), {'perimetre': 'tout', **donnees})
+
+    def compter(self, inv, article, texte, en_direct=True):
+        ligne = inv.lignes.get(article=article)
+        entetes = {'HTTP_X_REQUESTED_WITH': 'fetch'} if en_direct else {}
+        return self.client.post(reverse('stock:inventaire_compter', args=[inv.pk]),
+                                {f'compte_{ligne.pk}': texte}, **entetes)
+
+    def pdf_lu(self, url, **params):
+        """Ouvre un PDF d'inventaire → (réponse, textes des paragraphes et des cellules)."""
+        from reportlab.platypus import KeepTogether, Paragraph, Table
+
+        from . import pdf
+
+        elements, document = [], pdf._document_inventaire
+
+        def capter(liste, *args):
+            elements.extend(liste)  # reportlab vide la liste en construisant le PDF
+            return document(liste, *args)
+        with mock.patch('stock.pdf._document_inventaire', side_effect=capter):
+            rep = self.client.get(url, params)
+        textes = []
+
+        def lire(e):
+            if isinstance(e, Paragraph):
+                textes.append(e.text)
+            elif isinstance(e, Table):
+                for rang in e._cellvalues:
+                    for cellule in rang:
+                        lire(cellule) if isinstance(cellule, (Paragraph, list, tuple)) else textes.append(str(cellule))
+            elif isinstance(e, (KeepTogether, list, tuple)):
+                # reportlab range les paragraphes des cellules dans des tuples une fois le tableau mis en page
+                for x in getattr(e, '_content', e):
+                    lire(x)
+        for e in elements:
+            lire(e)
+        return rep, textes
+
+
+class InventaireCreationTests(InventaireEcransBase):
+    def test_menu_et_liste_pour_tous(self):
+        self.client.force_login(self.magasinier)
+        page = self.client.get(reverse('stock:inventaires'))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, f'href="{reverse("stock:inventaires")}"')
+        self.assertContains(page, 'Aucun inventaire en cours')
+        self.assertNotContains(page, reverse('stock:inventaire_nouveau'))
+        self.client.force_login(self.user)
+        self.assertContains(self.client.get(reverse('stock:inventaires')), reverse('stock:inventaire_nouveau'))
+        self.assertEqual(self.client.get(reverse('stock:inventaire_nouveau')).status_code, 200)
+
+    def test_tout_le_magasin_trie_par_emplacement(self):
+        rep = self.creer(observation='  Fin   d\'année ')
+        inv = Inventaire.objects.get()
+        self.assertRedirects(rep, reverse('stock:inventaire', args=[inv.pk]))
+        self.assertEqual((inv.statut, inv.perimetre, inv.observation, inv.cree_par),
+                         ('BROUILLON', 'Tout le magasin', "Fin d'année", self.user))
+        lignes = list(inv.lignes.order_by('pk'))
+        # Bloc A étagère R1 niveau 1, puis niveau 2, puis bloc B, puis les articles non rangés ; inactif exclu.
+        self.assertEqual([l.article.code for l in lignes], ['JT-01', 'FH-01', 'PN-01', 'CIM-45'])
+        self.assertTrue(all(l.stock_compte is None and l.compte_le is None for l in lignes))
+        self.assertEqual(self.stock(self.filtre), 10)
+        page = self.client.get(rep.url)
+        self.assertEqual([g['titre'] for g in page.context['groupes']],
+                         ['Bloc A › Étagère R1', 'Bloc B › Étagère P1', 'Articles non rangés'])
+        self.assertContains(page, 'inputmode="decimal"', count=4)
+        self.assertContains(page, '<b id="nb-comptes">0</b>')
+
+    def test_par_bloc_etagere_categorie(self):
+        cas = [({'perimetre': 'bloc', 'bloc': self.etagere.bloc.pk}, 'Bloc A – Pièces', ['JT-01', 'FH-01']),
+               ({'perimetre': 'etagere', 'etagere': self.p1.pk}, 'Bloc B › Étagère P1', ['PN-01']),
+               ({'perimetre': 'categorie', 'categorie': self.ciment.categorie.pk}, 'Catégorie Matériaux', ['CIM-45'])]
+        for donnees, perimetre, codes in cas:
+            with self.subTest(perimetre):
+                self.creer(**donnees)
+                inv = Inventaire.objects.latest('pk')
+                self.assertEqual(inv.perimetre, perimetre)
+                self.assertEqual([l.article.code for l in inv.lignes.order_by('pk')], codes)
+
+    def test_choix_incomplet_ou_vide_refuse(self):
+        rep = self.creer(perimetre='bloc')
+        self.assertContains(rep, 'Choisissez le bloc à compter.')
+        vide = Bloc.objects.create(code='Z')
+        rep = self.creer(perimetre='bloc', bloc=vide.pk)
+        self.assertContains(rep, 'aucun article actif à compter ici')
+        rep = self.creer(perimetre='etagere', etagere='999999')
+        self.assertContains(rep, "Cette étagère n&#x27;existe plus")
+        self.assertFalse(Inventaire.objects.exists())
+        # Une liste remplie mais non choisie ne gêne pas.
+        self.creer(perimetre='tout', bloc='999999')
+        self.assertEqual(Inventaire.objects.get().perimetre, 'Tout le magasin')
+
+    def test_avertit_si_un_autre_inventaire_compte_les_memes_articles(self):
+        self.creer(perimetre='etagere', etagere=self.etagere.pk)
+        premier = Inventaire.objects.get()
+        rep = self.creer(perimetre='bloc', bloc=self.etagere.bloc.pk)
+        self.assertContains(self.client.get(rep.url), f'aussi dans un autre inventaire en cours ({premier.numero})')
+
+    def test_magasinier_ne_cree_ni_ne_valide_ni_ne_supprime(self):
+        self.creer()
+        inv = Inventaire.objects.get()
+        self.client.force_login(self.magasinier)
+        for url in [reverse('stock:inventaire_nouveau'), reverse('stock:inventaire_valider', args=[inv.pk])]:
+            self.assertRedirects(self.client.get(url), reverse('stock:accueil'))
+            self.assertRedirects(self.client.post(url, {'perimetre': 'tout'}), reverse('stock:accueil'))
+        self.assertRedirects(self.client.post(reverse('stock:inventaire_supprimer', args=[inv.pk])),
+                             reverse('stock:accueil'))
+        self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
+        page = self.client.get(reverse('stock:inventaire', args=[inv.pk]))
+        self.assertNotContains(page, reverse('stock:inventaire_valider', args=[inv.pk]))
+        self.assertNotContains(page, reverse('stock:inventaire_supprimer', args=[inv.pk]))
+
+
+class InventaireComptageTests(InventaireEcransBase):
+    def setUp(self):
+        super().setUp()
+        self.creer()
+        self.inv = Inventaire.objects.get()
+        self.client.force_login(self.magasinier)
+
+    def test_magasinier_compte_une_case_a_la_fois(self):
+        rep = self.compter(self.inv, self.filtre, ' 8,5 ')
+        self.assertEqual(rep.status_code, 200)
+        ligne = self.inv.lignes.get(article=self.filtre)
+        donnees = rep.json()
+        self.assertEqual(donnees['lignes'], {str(ligne.pk): {'valeur': '8,5', 'heure': donnees['lignes'][str(ligne.pk)]['heure']}})
+        self.assertEqual((donnees['comptes'], donnees['total'], donnees['erreurs']), (1, 4, {}))
+        self.assertEqual(ligne.stock_compte, Decimal('8.5'))
+        self.assertIsNotNone(ligne.compte_le)
+        self.assertEqual(self.stock(self.filtre), 10)  # rien ne change avant la validation
+        rep = self.compter(self.inv, self.filtre, 'douze')
+        self.assertEqual(rep.json()['erreurs'], {str(ligne.pk): '« douze » n\'est pas un nombre.'})
+        self.assertEqual(self.inv.lignes.get(article=self.filtre).stock_compte, Decimal('8.5'))
+        rep = self.compter(self.inv, self.filtre, '1234567890123')
+        self.assertIn('code-barres', rep.json()['erreurs'][str(ligne.pk)])
+        rep = self.compter(self.inv, self.filtre, '')  # case vidée : redevient « non compté »
+        self.assertEqual((rep.json()['lignes'][str(ligne.pk)]['valeur'], rep.json()['comptes']), ('', 0))
+        ligne.refresh_from_db()
+        self.assertEqual((ligne.stock_compte, ligne.compte_le), (None, None))
+
+    def test_zero_est_un_comptage(self):
+        self.compter(self.inv, self.pneu, '0')
+        ligne = self.inv.lignes.get(article=self.pneu)
+        self.assertEqual(ligne.stock_compte, 0)
+        page = self.client.get(reverse('stock:inventaire', args=[self.inv.pk]))
+        self.assertContains(page, f'name="compte_{ligne.pk}" value="0"')
+        self.assertContains(page, '<b id="nb-comptes">1</b>')
+
+    def test_enregistrer_une_etagere_sans_ecraser_un_collegue(self):
+        filtre, joint = self.inv.lignes.get(article=self.filtre), self.inv.lignes.get(article=self.joint)
+        # Un collègue a compté le filtre après l'ouverture de la page : la case était vide ici.
+        LigneInventaire.objects.filter(pk=filtre.pk).update(stock_compte=7)
+        rep = self.client.post(reverse('stock:inventaire_compter', args=[self.inv.pk]), {
+            'groupe': f'etagere-{self.etagere.pk}',
+            f'compte_{filtre.pk}': '', f'avant_{filtre.pk}': '',
+            f'compte_{joint.pk}': '3', f'avant_{joint.pk}': ''})
+        self.assertRedirects(rep, reverse('stock:inventaire', args=[self.inv.pk]) + f'#etagere-{self.etagere.pk}')
+        self.assertEqual(self.inv.lignes.get(pk=filtre.pk).stock_compte, 7)
+        self.assertEqual(self.inv.lignes.get(pk=joint.pk).stock_compte, 3)
+        # Une erreur : la page revient avec la saisie gardée et le message à côté de la case.
+        rep = self.client.post(reverse('stock:inventaire_compter', args=[self.inv.pk]), {
+            f'compte_{joint.pk}': '-2', f'avant_{joint.pk}': '3'})
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, f'name="compte_{joint.pk}" value="-2"')
+        self.assertContains(rep, 'Le nombre ne peut pas être négatif.')
+        self.assertEqual(self.inv.lignes.get(pk=joint.pk).stock_compte, 3)
+
+    def test_stock_du_logiciel_cache_au_magasinier(self):
+        page = self.client.get(reverse('stock:inventaire', args=[self.inv.pk]), {'theorique': '1'})
+        self.assertFalse(page.context['theorique'])
+        self.assertNotContains(page, 'data-theorique')
+        self.assertNotContains(page, 'stock du logiciel</a>')
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('stock:inventaire', args=[self.inv.pk]))
+        self.assertNotContains(page, 'data-theorique')  # comptage à l'aveugle par défaut
+        self.assertContains(page, 'Afficher le stock du logiciel')
+        page = self.client.get(reverse('stock:inventaire', args=[self.inv.pk]), {'theorique': '1'})
+        self.assertContains(page, 'data-theorique="10.000"')
+
+    def test_fiche_de_comptage(self):
+        self.compter(self.inv, self.filtre, '9')
+        rep, textes = self.pdf_lu(reverse('stock:inventaire_fiche', args=[self.inv.pk]), theorique='1')
+        self.assertEqual(rep['Content-Type'], 'application/pdf')
+        self.assertTrue(rep.content.startswith(b'%PDF'))
+        self.assertIn(f'{self.inv.numero}-fiche-comptage.pdf', rep['Content-Disposition'])
+        self.assertIn(f'FICHE DE COMPTAGE N° {self.inv.numero}', textes)
+        self.assertNotIn('Théorique', textes)  # magasinier : pas de stock du logiciel, même demandé
+        self.assertNotIn('BROUILLON', ' '.join(textes))
+        for colonne in ['Niv.', 'Code', 'Désignation', 'Unité', 'Compté', 'Remarque', 'Compté par', 'Contrôlé par', 'Date']:
+            self.assertIn(colonne, textes)
+        sections = [t for t in textes if 'article' in t and ('Bloc' in t or 'non rangés' in t)]
+        self.assertEqual(len(sections), 3)
+        self.assertTrue(sections[0].startswith('Bloc A › Étagère R1 – Pièces'))
+        self.assertTrue(sections[2].startswith('Articles non rangés'))
+        codes = [t for t in textes if t in {'JT-01', 'FH-01', 'PN-01', 'CIM-45'}]
+        self.assertEqual(codes, ['JT-01', 'FH-01', 'PN-01', 'CIM-45'])
+        self.assertIn('SAC', textes)
+        # Responsable : colonne « Théorique » sur demande ; « reste » : seulement les articles pas encore comptés.
+        self.client.force_login(self.user)
+        _, textes = self.pdf_lu(reverse('stock:inventaire_fiche', args=[self.inv.pk]), theorique='1', reste='1')
+        self.assertIn('Théorique', textes)
+        self.assertIn('50', textes)
+        self.assertNotIn('FH-01', textes)
+
+
+class InventaireValidationTests(InventaireEcransBase):
+    def setUp(self):
+        super().setUp()
+        self.creer()
+        self.inv = Inventaire.objects.get()
+        self.client.force_login(self.magasinier)
+        self.compter(self.inv, self.filtre, '8')   # 2 manquent
+        self.compter(self.inv, self.pneu, '4')     # juste
+        self.compter(self.inv, self.joint, '3')    # 3 trouvés sans stock dans le logiciel
+        self.client.force_login(self.user)
+        self.url = reverse('stock:inventaire_valider', args=[self.inv.pk])
+
+    def test_recapitulatif_des_ecarts(self):
+        page = self.client.get(self.url)
+        self.assertEqual(page.status_code, 200)
+        ecarts = {e['article'].code: (e['theorique'], e['ecart'], e['valeur']) for e in page.context['ecarts']}
+        self.assertEqual(ecarts, {'FH-01': (10, -2, -2000), 'JT-01': (0, 3, 0)})
+        self.assertEqual((page.context['justes'], page.context['nb_comptees']), (1, 3))
+        self.assertEqual([l.article.code for l in page.context['non_comptees']], ['CIM-45'])
+        self.assertEqual((page.context['plus'], page.context['moins'], page.context['valeur_nette']), (0, -2000, -2000))
+        self.assertContains(page, '1 article non compté')
+        self.assertContains(page, 'Ciment CPJ 45 sac 50 kg')
+        self.assertContains(page, 'Valider : mettre le stock à jour')
+        self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
+
+    def test_validation_corrige_le_stock_et_trace_les_ecarts(self):
+        empreinte = self.client.get(self.url).context['empreinte']
+        rep = self.client.post(self.url, {'empreinte': empreinte})
+        self.assertRedirects(rep, reverse('stock:inventaires') + f'?valide={self.inv.pk}', fetch_redirect_response=False)
+        self.inv.refresh_from_db()
+        self.assertEqual((self.inv.statut, self.inv.valide_par), ('VALIDE', self.user))
+        self.assertEqual([self.stock(a) for a in (self.filtre, self.pneu, self.joint, self.ciment)], [8, 4, 3, 50])
+        mouvements = MouvementStock.objects.filter(type=MouvementStock.INVENTAIRE, reference=self.inv.numero)
+        self.assertEqual(sorted((m.article.code, m.quantite, m.prix_unitaire) for m in mouvements),
+                         [('FH-01', -2, 1000), ('JT-01', 3, 0)])
+        self.assertIsNone(self.inv.lignes.get(article=self.ciment).stock_theorique)  # non compté : ignoré
+        liste = self.client.get(rep.url)
+        self.assertContains(liste, '2 écarts corrigés dans le stock')
+        self.assertContains(liste, reverse('stock:inventaire_resultat', args=[self.inv.pk]))
+        self.assertEqual(list(liste.context['termines']), [self.inv])
+        self.assertEqual((liste.context['termines'][0].nb_ecarts, liste.context['termines'][0].valeur_ecarts), (2, -2000))
+        resultat = self.client.get(reverse('stock:inventaire', args=[self.inv.pk]))
+        self.assertTemplateUsed(resultat, 'stock/inventaire_resultat.html')
+        self.assertEqual([l.article.code for l in resultat.context['lignes']], ['JT-01', 'FH-01'])
+        self.assertEqual(resultat.context['valeur'], -2000)
+
+    def test_sortie_faite_apres_le_comptage_reprise(self):
+        services.valider(self.sortie(self.filtre, 3), self.user)  # 8 comptés, puis 3 sortis
+        empreinte = self.client.get(self.url).context['empreinte']
+        self.client.post(self.url, {'empreinte': empreinte})
+        self.assertEqual(self.stock(self.filtre), 5)
+
+    def test_chaque_article_a_son_heure_de_comptage(self):
+        # Filtre compté avant la sortie ; pneu recompté après la sienne : seule la sortie du filtre est reprise.
+        services.valider(self.sortie(self.filtre, 3), self.user)
+        services.valider(self.sortie(self.pneu, 1), self.user)
+        self.client.force_login(self.magasinier)
+        self.compter(self.inv, self.pneu, '3')
+        self.client.force_login(self.user)
+        page = self.client.get(self.url)
+        ecarts = {e['article'].code: (e['theorique'], e['ecart']) for e in page.context['ecarts']}
+        self.assertEqual(ecarts, {'FH-01': (10, -2), 'JT-01': (0, 3)})
+        self.client.post(self.url, {'empreinte': page.context['empreinte']})
+        self.assertEqual([self.stock(a) for a in (self.filtre, self.pneu, self.joint)], [5, 3, 3])
+        self.assertFalse(MouvementStock.objects.filter(type=MouvementStock.INVENTAIRE, article=self.pneu).exists())
+        self.assertEqual(self.inv.lignes.get(article=self.pneu).stock_theorique, 3)
+
+    def test_comptage_change_pendant_la_lecture(self):
+        empreinte = self.client.get(self.url).context['empreinte']
+        self.compter(self.inv, self.ciment, '49')
+        rep = self.client.post(self.url, {'empreinte': empreinte})
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, 'vérifiez le récapitulatif')
+        self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
+        self.assertEqual(self.stock(self.ciment), 50)
+
+    def test_comptage_impossible_bloque_la_validation(self):
+        services.valider(self.sortie(self.filtre, 9), self.user)  # 8 comptés, mais 9 sortis depuis
+        page = self.client.get(self.url)
+        self.assertContains(page, 'Recomptez cet article')
+        self.assertNotContains(page, 'Valider : mettre le stock à jour')
+        rep = self.client.post(self.url, {'empreinte': page.context['empreinte']})
+        self.assertContains(rep, 'Recomptez cet article')
+        self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
+
+    def test_inventaire_valide_n_est_plus_modifiable(self):
+        self.client.post(self.url, {'empreinte': self.client.get(self.url).context['empreinte']})
+        rep = self.compter(self.inv, self.filtre, '1')
+        self.assertEqual(rep.status_code, 409)
+        self.assertIn('ne peut plus être modifié', rep.json()['erreur'])
+        rep = self.compter(self.inv, self.filtre, '1', en_direct=False)
+        self.assertRedirects(rep, reverse('stock:inventaire', args=[self.inv.pk]))
+        self.assertEqual(self.inv.lignes.get(article=self.filtre).stock_compte, 8)
+        self.assertRedirects(self.client.get(self.url), reverse('stock:inventaire', args=[self.inv.pk]))
+        rep = self.client.post(reverse('stock:inventaire_supprimer', args=[self.inv.pk]), follow=True)
+        self.assertContains(rep, 'seul un inventaire en cours peut être supprimé')
+        self.assertTrue(Inventaire.objects.filter(pk=self.inv.pk).exists())
+        self.assertEqual(self.stock(self.filtre), 8)
+
+    def test_pdf_du_resultat(self):
+        self.assertRedirects(self.client.get(reverse('stock:inventaire_resultat', args=[self.inv.pk])),
+                             reverse('stock:inventaire_fiche', args=[self.inv.pk]), fetch_redirect_response=False)
+        self.client.post(self.url, {'empreinte': self.client.get(self.url).context['empreinte']})
+        self.client.force_login(self.magasinier)
+        rep, textes = self.pdf_lu(reverse('stock:inventaire_resultat', args=[self.inv.pk]))
+        self.assertTrue(rep.content.startswith(b'%PDF'))
+        self.assertIn(f'{self.inv.numero}-resultat.pdf', rep['Content-Disposition'])
+        self.assertIn(f"RÉSULTAT D'INVENTAIRE N° {self.inv.numero}", textes)
+        self.assertIn('2 articles · -2\xa0000 FCFA', textes)
+        self.assertIn('-2', textes)
+        self.assertIn('+3', textes)
+        self.assertIn('Articles non comptés : stock inchangé (1)', textes)
+        # Depuis l'historique des bons, « Imprimer » donne le même résultat ; la fiche du bon mène à l'inventaire.
+        detail = self.client.get(reverse('stock:bon_detail', args=['inventaire', self.inv.pk]))
+        self.assertContains(detail, reverse('stock:inventaire_resultat', args=[self.inv.pk]))
+        self.assertContains(detail, reverse('stock:inventaire', args=[self.inv.pk]))
+
+    def test_pdf_ouvert_directement_dans_la_version_bureau(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as dossier, \
+                override_settings(BUREAU=True, DATA_DIR=Path(dossier)), \
+                mock.patch('stock.bureau.Path.home', return_value=Path(dossier)), \
+                mock.patch('stock.bureau.ouvrir_fichier') as ouvrir:
+            page = reverse('stock:inventaire', args=[self.inv.pk])
+            rep = self.client.get(reverse('stock:inventaire_fiche', args=[self.inv.pk]), HTTP_REFERER=page)
+            self.assertRedirects(rep, page, fetch_redirect_response=False)
+            self.assertEqual(ouvrir.call_args[0][0].name, f'{self.inv.numero}-fiche-comptage.pdf')
+
+    def test_suppression_d_un_inventaire_en_cours(self):
+        self.assertEqual(self.client.get(reverse('stock:inventaire_supprimer', args=[self.inv.pk])).status_code, 405)
+        rep = self.client.post(reverse('stock:inventaire_supprimer', args=[self.inv.pk]), follow=True)
+        self.assertRedirects(rep, reverse('stock:inventaires'))
+        self.assertContains(rep, 'supprimé')
+        self.assertFalse(Inventaire.objects.exists())
+        self.assertFalse(LigneInventaire.objects.exists())
+        self.assertEqual(self.stock(self.filtre), 10)
+
+    def test_liste_sans_les_corrections_d_un_seul_article(self):
+        self.client.post(reverse('stock:article_corriger', args=[self.pneu.pk]), {'stock_compte': '5'})
+        liste = self.client.get(reverse('stock:inventaires'))
+        self.assertEqual(list(liste.context['en_cours']), [self.inv])
+        self.assertEqual((liste.context['en_cours'][0].comptes, liste.context['en_cours'][0].nb), (3, 4))
+        self.assertEqual(liste.context['termines'], [])
+        self.assertContains(liste, '<b>3</b> / 4 comptés')
+
+    def test_liste_du_plus_recent_au_plus_ancien(self):
+        self.client.post(self.url, {'empreinte': self.client.get(self.url).context['empreinte']})
+        self.creer(perimetre='etagere', etagere=self.p1.pk)
+        second = Inventaire.objects.latest('pk')
+        self.compter(second, self.pneu, '4')
+        url = reverse('stock:inventaire_valider', args=[second.pk])
+        rep = self.client.post(url, {'empreinte': self.client.get(url).context['empreinte']})
+        liste = self.client.get(rep.url)
+        self.assertEqual(liste.context['termines'], [second, self.inv])
+        self.assertContains(liste, f'Inventaire {second.numero} validé :</b>')
+        self.assertContains(liste, 'aucun écart, le stock était juste.')
+
+    def test_imprimer_depuis_l_historique_des_bons(self):
+        pdf = reverse('stock:bon_pdf', args=['inventaire', self.inv.pk])
+        self.assertRedirects(self.client.get(pdf), reverse('stock:inventaire_fiche', args=[self.inv.pk]),
+                             fetch_redirect_response=False)
+        detail = self.client.get(reverse('stock:bon_detail', args=['inventaire', self.inv.pk]))
+        self.assertContains(detail, reverse('stock:inventaire_valider', args=[self.inv.pk]))
+        self.assertContains(detail, '<span class="muted">10</span>')
+        self.client.force_login(self.magasinier)
+        detail = self.client.get(reverse('stock:bon_detail', args=['inventaire', self.inv.pk]))
+        self.assertNotContains(detail, '<span class="muted">10</span>')  # pas de stock du logiciel au magasinier
+        self.client.force_login(self.user)
+        self.client.post(self.url, {'empreinte': self.client.get(self.url).context['empreinte']})
+        self.assertRedirects(self.client.get(pdf), reverse('stock:inventaire_resultat', args=[self.inv.pk]),
+                             fetch_redirect_response=False)
+        # Une correction d'un seul article garde son PDF habituel.
+        self.client.post(reverse('stock:article_corriger', args=[self.pneu.pk]), {'stock_compte': '5'})
+        correction = Inventaire.objects.exclude(pk=self.inv.pk).get()
+        rep = self.client.get(reverse('stock:bon_pdf', args=['inventaire', correction.pk]))
+        self.assertEqual(rep['Content-Type'], 'application/pdf')

@@ -377,3 +377,193 @@ class PageRechercheTests(RechercheBase):
         rep = self.client.get(reverse('stock:recherche'))
         self.assertNotContains(rep, 'class="recherche-globale"')
         self.assertContains(rep, ' data-raccourci-recherche', count=1)
+
+
+class VueTroisDTests(RechercheBase):
+    def etageres(self):
+        plan = self.client.get(reverse('stock:api_plan')).json()
+        return {e['id']: e for b in plan['blocs'] for e in b['etageres']}
+
+    def test_fiche_d_etagere_compte_les_articles_actifs(self):
+        self.filtre_gasoil.actif = False
+        self.filtre_gasoil.save()
+        self.client.force_login(self.magasinier)
+        etageres = self.etageres()
+        self.assertEqual(etageres[self.a_r1.pk]['articles'], 2)  # l'éditeur prévient pour tous les articles rangés
+        self.assertEqual(etageres[self.a_r1.pk]['actifs'], 1)  # la fiche « N articles » de la 3D
+        self.assertEqual(etageres[self.b_r1.pk]['actifs'], 4)
+        self.assertEqual(etageres[self.a_r2.pk]['actifs'], 1)
+
+    def test_lien_voir_les_articles_d_une_etagere(self):
+        self.client.force_login(self.magasinier)
+        rep = self.client.get(reverse('stock:recherche'))
+        self.assertContains(rep, f'urlArticles: "{reverse("stock:articles")}"')
+        self.assertContains(rep, 'class="aide-tactile"')
+
+    def test_vue_dessinee_seulement_quand_elle_bouge(self):
+        from django.contrib.staticfiles import finders
+
+        with open(finders.find('stock/magasin3d.js'), encoding='utf-8') as f:
+            js = f.read()
+        self.assertNotIn('setAnimationLoop', js)  # pas de boucle de rendu permanente
+        self.assertIn('InstancedMesh', js)
+
+
+class EditeurPlanSurTests(RechercheBase):
+    """Éditeur du plan : niveaux occupés par des articles, données mal formées, page de l'éditeur."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.responsable)
+
+    def plan_editeur(self):
+        """Le plan tel que l'éditeur l'envoie (positions absolues, clés des blocs et des étagères)."""
+        plan = self.client.get(reverse('stock:api_plan')).json()
+        blocs, etageres = [], []
+        for b in plan['blocs']:
+            blocs.append({'cle': f'b{b["id"]}', 'id': b['id'], 'code': b['code'], 'nom': b['nom'], 'couleur': b['couleur'],
+                          'x': b['x'], 'z': b['z'], 'largeur': b['largeur'], 'profondeur': b['profondeur']})
+            for e in b['etageres']:
+                etageres.append({'cle': f'e{e["id"]}', 'id': e['id'], 'bloc': f'b{b["id"]}', 'code': e['code'],
+                                 'x': b['x'] + e['x'], 'z': b['z'] + e['z'], 'largeur': e['largeur'],
+                                 'profondeur': e['profondeur'], 'hauteur': e['hauteur'], 'niveaux': e['niveaux'],
+                                 'tournee': e['tournee']})
+        return {'blocs': blocs, 'etageres': etageres, 'murs': plan['murs'], 'elements': plan['elements']}
+
+    def envoyer(self, donnees):
+        corps = donnees if isinstance(donnees, str) else json.dumps(donnees)
+        return self.client.post(reverse('stock:api_plan_enregistrer'), corps, content_type='application/json')
+
+    def avec_niveaux(self, etagere, niveaux):
+        plan = self.plan_editeur()
+        next(e for e in plan['etageres'] if e['id'] == etagere.pk)['niveaux'] = niveaux
+        return plan
+
+    def test_articles_par_niveau_dans_le_plan(self):
+        etageres = {e['id']: e for b in self.client.get(reverse('stock:api_plan')).json()['blocs'] for e in b['etageres']}
+        self.assertEqual(etageres[self.a_r1.pk]['par_niveau'], [0, 1, 1])
+        self.assertEqual(etageres[self.a_r2.pk]['par_niveau'], [1])
+        self.assertEqual(etageres[self.b_r1.pk]['par_niveau'], [1, 1, 2])
+
+    def test_reduire_les_niveaux_sous_des_articles_est_refuse(self):
+        rep = self.envoyer(self.avec_niveaux(self.b_r1, 2))
+        self.assertEqual(rep.status_code, 400)
+        self.assertEqual(rep.json()['erreurs'], [
+            'Étagère R1 : 2 article(s) au niveau 3 ou plus. Déplacez-les avant de réduire les niveaux.'])
+        self.assertEqual(rep.json()['cibles'], [f'e{self.b_r1.pk}'])  # l'éditeur montre l'étagère en cause
+        rep = self.envoyer(self.avec_niveaux(self.a_r1, 1))
+        self.assertIn('Étagère R1 : 2 article(s) au niveau 2 ou plus.', rep.json()['erreurs'][0])
+        self.b_r1.refresh_from_db()
+        self.a_r1.refresh_from_db()
+        self.assertEqual((self.b_r1.nb_niveaux, self.a_r1.nb_niveaux), (4, 4))  # rien n'a changé
+        self.fer10.refresh_from_db()
+        self.assertEqual((self.fer10.etagere, self.fer10.niveau), (self.b_r1, 3))
+
+    def test_un_article_inactif_compte_aussi(self):
+        Article.objects.filter(pk=self.fer10.pk).update(actif=False)
+        rep = self.envoyer(self.avec_niveaux(self.b_r1, 2))
+        self.assertIn('2 article(s) au niveau 3 ou plus', rep.json()['erreurs'][0])
+
+    def test_reduire_au_dessus_des_articles_est_accepte(self):
+        self.brouette.etagere, self.brouette.niveau = self.a_r2, None  # rangé sans niveau précis : ne bloque pas
+        self.brouette.save()
+        plan = self.avec_niveaux(self.a_r1, 3)
+        next(e for e in plan['etageres'] if e['id'] == self.a_r2.pk)['niveaux'] = 1
+        rep = self.envoyer(plan)
+        self.assertEqual(rep.status_code, 200, rep.content)
+        self.a_r1.refresh_from_db()
+        self.a_r2.refresh_from_db()
+        self.assertEqual((self.a_r1.nb_niveaux, self.a_r2.nb_niveaux), (3, 1))
+        rep = self.envoyer(self.avec_niveaux(self.b_r1, 12))  # augmenter : toujours possible
+        self.assertEqual(rep.status_code, 200, rep.content)
+
+    def test_plan_deja_incoherent_reste_enregistrable(self):
+        # Ancienne version : R1 réduite à 2 niveaux alors que des articles sont au niveau 3.
+        Etagere.objects.filter(pk=self.b_r1.pk).update(nb_niveaux=2)
+        Article.objects.filter(pk=self.sable.pk).update(niveau=0)  # niveau 0 : compté comme « sans niveau »
+        rep = self.envoyer(self.plan_editeur())
+        self.assertEqual(rep.status_code, 200, rep.content)
+        etagere = next(e for b in rep.json()['blocs'] for e in b['etageres'] if e['id'] == self.b_r1.pk)
+        self.assertEqual(etagere['par_niveau'], [1, 0, 2])
+        rep = self.envoyer(self.avec_niveaux(self.b_r1, 1))  # réduire encore : refusé
+        self.assertEqual(rep.json()['erreurs'], [
+            'Étagère R1 : 2 article(s) au niveau 2 ou plus. Déplacez-les avant de réduire les niveaux.'])
+        self.assertEqual(self.envoyer(self.avec_niveaux(self.b_r1, 3)).status_code, 200)  # remettre les niveaux
+        url = reverse('stock:etagere_modifier', args=[self.a_r1.pk])
+        Etagere.objects.filter(pk=self.a_r1.pk).update(nb_niveaux=2)
+        champs = {'code': 'R1b', 'x': '1', 'z': '1', 'largeur': '3', 'profondeur': '1', 'hauteur': '2,5', 'nb_niveaux': '2'}
+        self.assertRedirects(self.client.post(url, champs), reverse('stock:reglages_plan'))
+
+    def test_donnees_mal_formees_refusees_sans_erreur_500(self):
+        bloc = {'cle': 'b1', 'code': 'Z', 'x': 0, 'z': 0, 'largeur': 5, 'profondeur': 5}
+        etagere = {'cle': 'e1', 'bloc': 'b1', 'code': 'E1', 'x': 1, 'z': 1, 'largeur': 2, 'profondeur': 1, 'hauteur': 2,
+                   'niveaux': 4}
+        mauvais = [
+            '[]', '"plan"', '42', 'null', '{"blocs": "A"}', '{"blocs": [1, 2]}', '{"etageres": {"a": 1}}',
+            '[' * 100000,  # imbrication sans fin
+            {'blocs': [{**bloc, 'id': 'abc'}]},
+            {'blocs': [{**bloc, 'id': [1]}]},
+            {'blocs': [{**bloc, 'id': {'n': 1}}]},
+            '{"blocs": [{"cle": "b1", "id": Infinity, "code": "Z", "x": 0, "z": 0, "largeur": 5, "profondeur": 5}]}',
+            '{"blocs": [{"cle": "b1", "code": "Z", "x": NaN, "z": 0, "largeur": 5, "profondeur": 5}]}',
+            '{"blocs": [{"cle": "b1", "code": "Z", "x": 1' + '0' * 400 + ', "z": 0, "largeur": 5, "profondeur": 5}]}',
+            {'blocs': [{**bloc, 'id': self.a_r1.bloc_id}, {**bloc, 'cle': 'b2', 'code': 'Y', 'id': self.a_r1.bloc_id}]},
+            {'blocs': [bloc], 'etageres': [{**etagere, 'id': 'x'}]},
+            {'blocs': [bloc], 'etageres': [{**etagere, 'niveaux': 'Infinity'}]},
+            {'blocs': [bloc], 'etageres': [{**etagere, 'niveaux': 1e300}]},
+            {'blocs': [bloc], 'etageres': [{**etagere, 'niveaux': None}]},
+            {'blocs': [bloc], 'murs': [{'id': 'mur', 'x1': 0, 'z1': 0, 'x2': 5, 'z2': 0}]},
+            {'blocs': [bloc], 'elements': [{'type': ['porte'], 'x': 0, 'z': 0}]},
+            {'blocs': [bloc], 'elements': [{'type': {'porte': 1}, 'x': 0, 'z': 0}]},
+            {'blocs': [{**bloc, 'code': '~1'}]},
+        ]
+        for corps in mauvais:
+            with self.subTest(corps=str(corps)[:80]):
+                rep = self.envoyer(corps)
+                self.assertEqual(rep.status_code, 400)
+                self.assertTrue(rep.json()['erreurs'])
+        self.assertEqual(Bloc.objects.count(), 2)  # rien n'a été touché
+        self.assertTrue(Etagere.objects.filter(pk=self.a_r1.pk, code='R1').exists())
+
+    def test_identifiant_inconnu_cree_un_nouvel_objet(self):
+        plan = self.plan_editeur()
+        plan['blocs'].append({'cle': 'bn1', 'id': 10 ** 30, 'code': 'C<&>', 'x': 30, 'z': 0, 'largeur': 4, 'profondeur': 4})
+        rep = self.envoyer(plan)
+        self.assertEqual(rep.status_code, 200, rep.content)
+        self.assertTrue(Bloc.objects.filter(code='C<&>').exists())
+
+    def test_formulaire_etagere_refuse_de_reduire_les_niveaux(self):
+        url = reverse('stock:etagere_modifier', args=[self.b_r1.pk])
+        self.assertContains(self.client.get(url), 'Des articles sont rangés jusqu&#x27;au niveau 3.')
+        champs = {'code': 'R1', 'x': '1', 'z': '1', 'largeur': '3', 'profondeur': '1', 'hauteur': '2,5'}
+        rep = self.client.post(url, {**champs, 'nb_niveaux': '2'})
+        self.assertContains(rep, 'Étagère R1 : 2 article(s) au niveau 3 ou plus. Déplacez-les avant de réduire les niveaux.')
+        self.assertContains(self.client.post(url, {**champs, 'nb_niveaux': '0'}), 'entre 1 et 30')
+        self.b_r1.refresh_from_db()
+        self.assertEqual(self.b_r1.nb_niveaux, 4)
+        self.assertRedirects(self.client.post(url, {**champs, 'nb_niveaux': '3'}), reverse('stock:reglages_plan'))
+        self.b_r1.refresh_from_db()
+        self.assertEqual(self.b_r1.nb_niveaux, 3)
+        nouvelle = reverse('stock:etagere_nouvelle', args=[self.b_r1.bloc_id])
+        self.assertRedirects(self.client.post(nouvelle, {**champs, 'code': 'R9', 'nb_niveaux': '2'}),
+                             reverse('stock:reglages_plan'))
+
+    def test_page_de_l_editeur(self):
+        rep = self.client.get(reverse('stock:editeur_plan'))
+        self.assertContains(rep, 'id="btn-retablir"')
+        self.assertContains(rep, 'data-bulle="Annuler (Ctrl+Z)"')
+        self.assertContains(rep, "L'éditeur de plan s'utilise sur ordinateur")
+        self.assertContains(rep, f'href="{reverse("stock:reglages_plan")}"')
+
+    def test_codes_echappes_dans_l_editeur(self):
+        from django.contrib.staticfiles import finders
+
+        with open(finders.find('stock/editeur-plan.js'), encoding='utf-8') as f:
+            js = f.read()
+        # Textes insérés par innerHTML dans le panneau : échappés (les autres passent par textContent).
+        for brut in ('<h3>Bloc ${o.code}', '<h3>Étagère ${o.code}', '>Bloc ${b.code}</option>', '<h3>${t.nom}',
+                     'value="${String(v)'):
+            self.assertNotIn(brut, js)
+        for echappe in ('<h3>Bloc ${echapper(o.code)}', '<h3>Étagère ${echapper(o.code)}', '>Bloc ${echapper(b.code)}</option>',
+                        'value="${echapper(v)}"'):
+            self.assertIn(echappe, js)

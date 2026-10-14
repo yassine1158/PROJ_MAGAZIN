@@ -15,14 +15,22 @@
         <h1>Nouvel article</h1><p>Les champs marqués * sont obligatoires.</p>
       {% endif %}
     </div>
-    {% if article and article.etagere_id %}
-      <a class="btn" href="{% url 'stock:recherche' %}?article={{ article.pk }}">{% icone 'cube' %} Voir en 3D</a>
+    {% if article %}
+    <div class="actions-bon">
+      {% if article.actif %}
+        <a class="btn btn-orange" href="{% url 'stock:sortie' %}?article={{ article.pk }}">{% icone 'sortie' %} Sortie</a>
+        <a class="btn btn-vert" href="{% url 'stock:entree' %}?article={{ article.pk }}">{% icone 'entree' %} Entrée</a>
+      {% endif %}
+      {% if article.etagere_id %}
+        <a class="btn" href="{% url 'stock:recherche' %}?article={{ article.pk }}">{% icone 'cube' %} Voir en 3D</a>
+      {% endif %}
+    </div>
     {% endif %}
   </div>
 
   {% if form.non_field_errors %}<div class="message message-error">{% icone 'alerte' %}<div>{{ form.non_field_errors|join:" " }}</div></div>{% endif %}
 
-  <form method="post" enctype="multipart/form-data" autocomplete="off">
+  <form method="post" enctype="multipart/form-data" autocomplete="off" data-proteger{% if form.errors %} data-modifie{% endif %}>
     {% csrf_token %}
     <div class="grid-2">
       <section class="carte carte-pad">

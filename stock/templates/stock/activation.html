@@ -10,30 +10,38 @@
 </head>
 <body>
 <main class="page-connexion">
-  <div class="carte boite-connexion" style="max-width:560px">
+  <div class="carte boite-connexion boite-licence">
     <img src="{% static 'stock/produit-logo.svg' %}" alt="{{ PRODUIT }}">
     {% include 'stock/_messages.html' %}
     {% if etat.mode == 'active' %}
       <h1>Logiciel activé ✓</h1>
       <p class="sous">Licence au nom de <b>{{ etat.client }}</b> pour cet ordinateur.</p>
       <a class="btn btn-vert btn-grand" href="{% url 'stock:accueil' %}">Retour au logiciel</a>
+    {% elif etat.mode == 'libre' %}
+      <h1>Licence</h1>
+      <p class="sous">Cette version n'a pas besoin de clé d'activation : tout le logiciel est disponible.</p>
+      <a class="btn btn-vert btn-grand" href="{% url 'stock:accueil' %}">Retour au logiciel</a>
     {% else %}
       {% if etat.mode == 'expire' %}
         <h1>L'essai gratuit est terminé</h1>
         <p class="sous">Vos données sont conservées. Activez le logiciel pour continuer à l'utiliser.</p>
-      {% elif etat.mode == 'essai' %}
+      {% else %}
         <h1>Version d'essai</h1>
         <p class="sous">Encore <b>{{ etat.jours_restants }} jour{{ etat.jours_restants|pluralize }}</b> d'essai gratuit (sur {{ essai_jours }}).</p>
-      {% else %}
-        <h1>Licence</h1><p class="sous">Le verrouillage n'est pas configuré sur cette version.</p>
+      {% endif %}
+      {% if etat.date_incorrecte %}
+        <div class="message message-warning">{% icone 'alerte' %}<div><b>La date de cet ordinateur semble incorrecte</b> : il indique le {% now "d/m/Y" %}, alors que le logiciel a déjà été ouvert à une date plus récente. Corrigez la date de Windows (clic droit sur l'heure, en bas à droite de l'écran › « Ajuster la date et l'heure »). Reculer la date ne prolonge pas l'essai.</div></div>
       {% endif %}
 
       <ol class="etapes-activation">
         <li><b>Payez {{ prix }}</b> (licence pour cet ordinateur){% if wave %} :
-          <a class="btn btn-wave" href="{{ wave }}" target="_blank" rel="noopener">Payer avec Wave</a>{% else %} par Wave.{% endif %}</li>
-        <li>Envoyez la preuve de paiement avec le <b>code de cet ordinateur</b> :
-          <div class="code-machine" title="Code de cet ordinateur">{{ code }}</div>
-          {% if whatsapp %}<a class="btn" href="{{ whatsapp }}" target="_blank" rel="noopener">Envoyer par WhatsApp</a>{% endif %}
+          <a class="btn btn-wave" href="{{ wave }}" target="_blank" rel="noopener">Payer avec Wave</a>{% elif contacts %} par Wave : le vendeur vous donne le numéro (contacts ci-dessous).{% else %} par Wave.{% endif %}</li>
+        <li>Envoyez la preuve de paiement avec le <b>code de cet ordinateur</b>{% if whatsapp_numero %} par WhatsApp au <b class="numero-clair">{{ whatsapp_numero }}</b>{% endif %} :
+          <div class="code-machine" id="code-machine" title="Code de cet ordinateur">{{ code }}</div>
+          <div class="boutons-code">
+            <button type="button" class="btn" id="copier-code" data-code="{{ code }}">Copier le code</button>
+            {% if whatsapp %}<a class="btn" href="{{ whatsapp }}" target="_blank" rel="noopener">Envoyer par WhatsApp</a>{% endif %}
+          </div>
         </li>
         <li>Vous recevez votre <b>clé d'activation</b> : collez-la ci-dessous.</li>
       </ol>
@@ -46,9 +54,52 @@
         <button class="btn btn-vert btn-grand">{% icone 'cle' %} Activer</button>
       </form>
       {% if etat.mode == 'essai' %}<p class="produit-bas"><a href="{% url 'stock:accueil' %}">Continuer l'essai</a></p>{% endif %}
-      {% if site %}<p class="produit-bas"><a href="{{ site }}" target="_blank" rel="noopener">Site de {{ PRODUIT }}</a></p>{% endif %}
+    {% endif %}
+
+    {% if contacts %}
+      <div class="contacts-vendeur">
+        <div class="contacts-titre">Contact du vendeur</div>
+        {% for c in contacts %}
+          <div><span class="muted">{{ c.nom }} :</span> <a href="{{ c.lien }}" target="_blank" rel="noopener">{{ c.texte }}</a></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if request.user.is_authenticated or site %}
+    <p class="produit-bas liens-licence">
+      {% if request.user.is_authenticated %}<a href="{% url 'stock:aide' %}#licence">Aide</a>{% endif %}
+      {% if site %}<a href="{{ site }}" target="_blank" rel="noopener">Site de {{ PRODUIT }}</a>{% endif %}
+    </p>
+    {% endif %}
+    {% if etat.mode == 'expire' and request.user.is_authenticated %}
+      <form method="post" action="{% url 'stock:deconnexion' %}" class="produit-bas">{% csrf_token %}
+        <button type="submit" class="lien-bouton">{% icone 'deconnexion' %} Se déconnecter</button>
+      </form>
     {% endif %}
   </div>
 </main>
+<script>
+  // « Copier le code » : presse-papiers, ou ancienne méthode quand le navigateur la refuse (téléphone en http).
+  const bouton = document.getElementById('copier-code');
+  if (bouton) bouton.addEventListener('click', async () => {
+    const code = bouton.dataset.code;
+    let copie = false;
+    try {
+      await navigator.clipboard.writeText(code);
+      copie = true;
+    } catch (e) {
+      const zone = document.createElement('textarea');
+      zone.value = code;
+      zone.setAttribute('readonly', '');
+      zone.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(zone);
+      zone.select();
+      try { copie = document.execCommand('copy'); } catch (e2) { copie = false; }
+      zone.remove();
+    }
+    if (!copie) window.getSelection().selectAllChildren(document.getElementById('code-machine'));
+    bouton.textContent = copie ? 'Code copié ✓' : 'Appuyez sur Ctrl+C pour copier';
+    setTimeout(() => { bouton.textContent = 'Copier le code'; }, 3000);
+  });
+</script>
 </body>
 </html>

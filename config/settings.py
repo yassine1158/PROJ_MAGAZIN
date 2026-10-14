@@ -133,14 +133,19 @@ if not os.environ.get('ANTHROPIC_API_KEY') and MAGASIN_CLE_IA_FICHIER.exists():
 MAGASIN_IA_ACTIVE = bool(os.environ.get('ANTHROPIC_API_KEY') or os.environ.get('ANTHROPIC_AUTH_TOKEN'))
 
 if BUREAU:
-    # Pas de console : les erreurs vont dans un fichier, pour pouvoir les envoyer.
+    # Pas de console : les erreurs vont dans un fichier, pour pouvoir les envoyer (1 Mo, plus 3 anciens au plus).
     LOGGING = {
         'version': 1,
         'disable_existing_loggers': False,
-        'handlers': {'fichier': {'class': 'logging.FileHandler', 'filename': DATA_DIR / 'journal.log',
+        'handlers': {'fichier': {'class': 'logging.handlers.RotatingFileHandler', 'filename': DATA_DIR / 'journal.log',
+                                 'maxBytes': 1_000_000, 'backupCount': 3, 'delay': True,
                                  'encoding': 'utf-8', 'level': 'WARNING'}},
         'root': {'handlers': ['fichier'], 'level': 'WARNING'},
     }
+
+# Licence : copie du début de l'essai commune à tous les comptes Windows de l'ordinateur (stock/licence.py).
+ESSAI_COMMUN = (Path(os.environ['PROGRAMDATA']) / produit.NOM / '.essai'
+                if BUREAU and os.name == 'nt' and os.environ.get('PROGRAMDATA') else None)
 
 JAZZMIN_SETTINGS = {
     'site_title': produit.NOM,

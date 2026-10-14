@@ -5,7 +5,7 @@ Le nom, le logo et la couleur de chaque société cliente se règlent dans le lo
 """
 NOM = 'MagaStock'
 SLOGAN = 'Gestion de magasin et de stock'
-VERSION = '1.5.0'
+VERSION = '1.6.0'
 COULEUR = '#2457d6'  # couleur par défaut, modifiable par chaque société
 
 # --- Vente -----------------------------------------------------------------
@@ -13,6 +13,8 @@ PRIX = '200 000 FCFA'          # licence pour 1 ordinateur, payée une fois
 ESSAI_JOURS = 30               # essai gratuit complet, puis le logiciel demande une clé d'activation
 WAVE_LIEN = ''                 # lien de paiement Wave Business (à coller ici), ex. https://pay.wave.com/…
 WHATSAPP = ''                  # numéro pour recevoir la preuve de paiement, ex. 2250700000000 (sans + ni espaces)
+TELEPHONE_VENDEUR = ''         # contact affiché dans Licence et Aide, ex. +225 07 00 00 00 00
+EMAIL_VENDEUR = ''             # ex. contact@exemple.com
 SITE_WEB = 'https://yassine1158.github.io/PROJ_MAGAZIN/'
 
 # --- Version Windows ---------------------------------------------------------

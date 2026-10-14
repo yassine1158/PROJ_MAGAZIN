@@ -1,11 +1,11 @@
 # Nouveautés de cette version : montrées dans le logiciel (bouton « Nouveautés ») et sur la page de la version.
 # Une ligne par nouveauté, en français simple. Les lignes qui commencent par # sont ignorées.
-Téléchargement direct depuis le site et avertissement quand une nouvelle version sort.
-Sauvegardes automatiques (chaque jour et avant chaque mise à jour), copie sur clé USB et restauration.
-Accès depuis les téléphones du magasin par le Wi-Fi (Réglages › Accès téléphones, avec QR code).
-Bouton pour effacer le magasin d'exemple et commencer avec vos vraies données.
-Bons imprimés plus complets : nom du réceptionnaire, montant en lettres, RCCM et NCC, numéros de page, 2 exemplaires.
-Recherche plus rapide et plus tolérante (codes sans tiret, fautes), barre de recherche sur toutes les pages (touche « / »).
-Les magasiniers peuvent imprimer leurs bons ; l'annulation et la correction du stock sont réservées aux responsables.
-Plus de double bon en cas de double clic ; quantités contrôlées (plus d'erreur avec un code-barres scanné par erreur).
-Un seul MagaStock ouvert à la fois : un second lancement ramène la fenêtre déjà ouverte.
+Inventaire : tout le magasin, un bloc ou une étagère ; fiche de comptage imprimée ou comptage au téléphone ; écarts en quantité et en valeur avant validation.
+Import des articles depuis Excel, avec modèle à télécharger et aperçu des erreurs avant l'import.
+Retour de chantier : la marchandise non utilisée revient en stock et la consommation du chantier baisse.
+Étiquettes avec QR code pour les articles et les étagères, prêtes à imprimer.
+Nouveaux rapports : journal des mouvements, stock à une date, articles à commander, fiche de stock par article.
+Historique des bons plus rapide, avec recherche et filtres par date et par type.
+Premiers pas guidés à la première ouverture, avec magasin d'exemple à essayer puis effacer.
+Plan du magasin : éditeur plus pratique (tout le plan visible, annuler et refaire) et 3D plus fluide.
+Corrections et améliorations sur les ordinateurs et les téléphones.

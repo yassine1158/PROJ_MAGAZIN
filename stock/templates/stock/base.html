@@ -32,15 +32,20 @@
       <div class="titre-groupe">Mouvements</div>
       <a href="{% url 'stock:entree' %}" class="{% if nom == 'entree' %}actif{% endif %}">{% icone 'entree' %} Entrée de stock</a>
       <a href="{% url 'stock:sortie' %}" class="{% if nom == 'sortie' %}actif{% endif %}">{% icone 'sortie' %} Sortie de stock</a>
+      <a href="{% url 'stock:retour' %}" class="{% if nom == 'retour' %}actif{% endif %}">{% icone 'retour' %} Retour de chantier</a>
       <a href="{% url 'stock:bons' %}" class="{% if nom == 'bons' or nom == 'bon_detail' %}actif{% endif %}">{% icone 'historique' %} Historique des bons</a>
 
       <div class="titre-groupe">Stock</div>
-      <a href="{% url 'stock:articles' %}" class="{% if nom == 'articles' or nom == 'article_nouveau' or nom == 'article_modifier' %}actif{% endif %}">{% icone 'articles' %} Articles</a>
+      <a href="{% url 'stock:articles' %}" class="{% if nom == 'articles' or nom == 'article_nouveau' or nom == 'article_modifier' or nom|slice:':7' == 'import_' %}actif{% endif %}">{% icone 'articles' %} Articles</a>
       <a href="{% url 'stock:articles' %}?filtre=alerte" class="{% if nom == 'articles' and request.GET.filtre == 'alerte' %}actif{% endif %}">{% icone 'alerte' %} À commander{% if NB_ALERTES %}<span class="compteur">{{ NB_ALERTES }}</span>{% endif %}</a>
+      <a href="{% url 'stock:inventaires' %}" class="{% if nom == 'inventaires' or nom == 'inventaire' or nom == 'inventaire_nouveau' or nom == 'inventaire_valider' %}actif{% endif %}">{% icone 'inventaire' %} Inventaire</a>
+      {% if request.user.is_staff %}<a href="{% url 'stock:etiquettes' %}" class="{% if nom == 'etiquettes' %}actif{% endif %}">{% icone 'qr' %} Étiquettes</a>{% endif %}
 
       <div class="titre-groupe">Rapports</div>
       <a href="{% url 'stock:dashboard' %}" class="{% if nom == 'dashboard' %}actif{% endif %}">{% icone 'rapport' %} Tableau de bord</a>
-      <a href="{% url 'stock:consommation' %}" class="{% if nom == 'consommation' %}actif{% endif %}">{% icone 'chantier' %} Consommation chantiers</a>
+      <a href="{% url 'stock:consommation' %}" class="{% if nom == 'consommation' %}actif{% endif %}">{% icone 'chantier' %} Consommation</a>
+      <a href="{% url 'stock:journal' %}" class="{% if nom == 'journal' %}actif{% endif %}">{% icone 'liste' %} Journal des mouvements</a>
+      <a href="{% url 'stock:etat_stock_date' %}" class="{% if nom == 'etat_stock_date' %}actif{% endif %}">{% icone 'inventaire' %} Stock à une date</a>
 
       {% if request.user.is_staff %}
       <div class="titre-groupe">Réglages</div>
@@ -53,6 +58,7 @@
       <a href="{% url 'stock:reglages_ia' %}" class="{% if nom == 'reglages_ia' %}actif{% endif %}">{% icone 'cube' %} Recherche IA</a>
       {% if LICENCE %}<a href="{% url 'stock:activation' %}" class="{% if nom == 'activation' %}actif{% endif %}">{% icone 'cle' %} Licence</a>{% endif %}
       {% endif %}
+      <a href="{% url 'stock:aide' %}" class="lien-aide{% if nom == 'aide' %} actif{% endif %}">{% icone 'aide' %} Aide</a>
     </nav>
     {% if MISE_A_JOUR %}
     <div class="carte carte-maj">
@@ -140,6 +146,24 @@
     champ.focus();
     champ.select();
   });
+  // Saisie protégée (formulaire marqué data-proteger) : on prévient avant de quitter une page modifiée et pas enregistrée.
+  {
+    const saisieEnCours = () => document.querySelector('form[data-proteger][data-modifie]');
+    const marquerModifie = (e) => e.target.closest?.('form[data-proteger]')?.setAttribute('data-modifie', '');
+    document.addEventListener('input', marquerModifie);
+    document.addEventListener('change', marquerModifie);
+    document.addEventListener('submit', (e) => { if (!e.defaultPrevented) e.target.removeAttribute('data-modifie'); });
+    window.addEventListener('beforeunload', (e) => { if (saisieEnCours()) { e.preventDefault(); e.returnValue = ''; } });
+    document.addEventListener('click', (e) => {
+      const lien = e.target.closest('form[data-proteger] a[href]');  // Retour, Annuler…
+      if (!lien || !saisieEnCours() || lien.target === '_blank') return;
+      if (confirm('Ce que vous avez saisi n\'est pas enregistré. Quitter quand même ?')) {
+        document.querySelectorAll('form[data-modifie]').forEach((f) => f.removeAttribute('data-modifie'));
+      } else {
+        e.preventDefault();
+      }
+    });
+  }
 </script>
 {% block scripts %}{% endblock %}
 </body>

@@ -1,0 +1,92 @@
+{% extends 'stock/base.html' %}
+{% load static magasin %}
+{% block titre %}Inventaire {{ bon.numero }}{% endblock %}
+{% block contenu %}
+<main class="page" id="comptage" data-url="{% url 'stock:inventaire_compter' bon.pk %}">
+  <div class="entete">
+    <div>
+      <h1>{{ bon.perimetre|default:"Inventaire" }}</h1>
+      <p><span class="badge badge-warn">En cours</span> · {{ bon.numero }} · commencé le {{ bon.date|date:"d/m/Y" }}{% if bon.cree_par %} par {{ bon.cree_par.get_full_name|default:bon.cree_par.get_username }}{% endif %}{% if bon.observation %} · {{ bon.observation }}{% endif %}</p>
+    </div>
+    <div class="actions-bon">
+      <a class="btn" href="{% url 'stock:inventaire_fiche' bon.pk %}{% if theorique %}?theorique=1{% endif %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Fiche de comptage</a>
+      {% if request.user.is_staff %}<a class="btn btn-vert" href="{% url 'stock:inventaire_valider' bon.pk %}">{% icone 'valider' %} Valider l'inventaire</a>{% endif %}
+    </div>
+  </div>
+
+  {% if erreurs %}
+  <div class="message message-error">{% icone 'alerte' %}<div>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>
+  {% endif %}
+  <section class="carte carte-pad barre-comptage">
+    <div class="progression-inventaire">
+      <div class="barre"><span id="barre-comptes" style="width:{{ pourcent }}%"></span></div>
+      <span><b id="nb-comptes">{{ comptes }}</b> / <span id="nb-total">{{ total }}</span> comptés</span>
+    </div>
+    <div class="outils-comptage">
+      <input type="search" id="filtre-texte" placeholder="Chercher un article (code, nom)…" aria-label="Chercher un article">
+      <label class="case-afficher"><input type="checkbox" id="filtre-non-comptes"> Non comptés seulement</label>
+      {% if groupes|length > 1 %}
+      <select id="aller-a" aria-label="Aller à l'étagère">
+        <option value="">Aller à l'étagère…</option>
+        {% for g in groupes %}<option value="{{ g.cle }}">{{ g.titre }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      {% if request.user.is_staff %}
+      <a class="petit" href="?{% if not theorique %}theorique=1{% endif %}">{% if theorique %}Masquer le stock du logiciel{% else %}Afficher le stock du logiciel{% endif %}</a>
+      {% endif %}
+    </div>
+    <div class="message message-error" id="alerte-comptage" role="alert" hidden>{% icone 'alerte' %}<div></div></div>
+  </section>
+  <p class="aide aide-comptage">Tapez la quantité trouvée en rayon : elle est enregistrée dès que vous passez à l'article suivant (touche Entrée). Article absent : tapez 0.{% if not request.user.is_staff %} Le stock change quand un responsable valide l'inventaire.{% endif %}</p>
+
+  <p class="vide carte" id="rien-a-afficher" hidden>Aucun article ne correspond.</p>
+
+  {% for g in groupes %}
+  <form method="post" action="{% url 'stock:inventaire_compter' bon.pk %}" class="carte groupe-comptage" id="{{ g.cle }}" autocomplete="off" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="groupe" value="{{ g.cle }}">
+    <div class="groupe-entete">
+      <div><h2>{{ g.titre }}</h2>{% if g.sous %}<div class="muted petit">{{ g.sous }}</div>{% endif %}</div>
+      <span class="badge badge-gris compteur-groupe"><b>{{ g.comptes }}</b> / {{ g.lignes|length }}</span>
+    </div>
+    <div class="lignes-comptage{% if theorique %} avec-theorique{% endif %}">
+      <div class="lc-titres" aria-hidden="true"><span>Niv.</span><span>Code</span><span>Désignation</span>{% if theorique %}<span class="num">Logiciel</span>{% endif %}<span>Compté</span></div>
+      {% for l in g.lignes %}
+      <div class="ligne-comptage{% if l.avant %} compte{% endif %}{% if l.erreur %} erreur{% endif %}" data-ligne="{{ l.pk }}" data-texte="{{ l.article.code }} {{ l.article.designation }} {{ l.article.reference_fabricant }}"{% if theorique %} data-theorique="{{ l.article.stock|stringformat:'s' }}"{% endif %}>
+        <span class="lc-niv">{% if l.article.niveau %}<span class="lc-etiq">Niv. </span>{{ l.article.niveau }}{% else %}<span class="muted">—</span>{% endif %}</span>
+        <span class="lc-code">{{ l.article.code }}</span>
+        <label class="lc-des" for="c{{ l.pk }}">{{ l.article.designation }}{% if l.article.case %} <span class="muted petit">· {{ l.article.case }}</span>{% endif %}</label>
+        {% if theorique %}<span class="lc-theo"><span class="lc-etiq">Logiciel </span>{{ l.article.stock|qte }}</span>{% endif %}
+        <span class="lc-saisie">
+          <input id="c{{ l.pk }}" name="compte_{{ l.pk }}" value="{{ l.saisie }}" inputmode="decimal" enterkeyhint="next" autocomplete="off" maxlength="20">
+          <input type="hidden" name="avant_{{ l.pk }}" value="{{ l.avant }}">
+          <span class="lc-unite">{{ l.article.unite }}</span>
+          <span class="lc-etat" aria-live="polite"{% if l.compte_le %} title="Compté le {{ l.compte_le|date:'d/m/Y à H:i' }}"{% endif %}>{% if l.avant %}✓{% endif %}</span>
+        </span>
+        {% if theorique %}<span class="lc-ecart"></span>{% endif %}
+        <div class="lc-erreur"{% if not l.erreur %} hidden{% endif %}>{{ l.erreur|default:'' }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="groupe-pied">
+      <span class="muted petit etat-groupe"></span>
+      <button type="submit" class="btn">{% icone 'valider' %} Enregistrer</button>
+    </div>
+  </form>
+  {% endfor %}
+
+  <div class="boutons-bas">
+    <a class="btn" href="{% url 'stock:inventaires' %}">Tous les inventaires</a>
+    {% if request.user.is_staff %}
+    <form method="post" action="{% url 'stock:inventaire_supprimer' bon.pk %}" onsubmit="return confirm('Supprimer cet inventaire et tout ce qui a été compté ? Le stock ne change pas.')">
+      {% csrf_token %}
+      <button class="btn btn-rouge">{% icone 'poubelle' %} Supprimer l'inventaire</button>
+    </form>
+    <a class="btn btn-vert" href="{% url 'stock:inventaire_valider' bon.pk %}">{% icone 'valider' %} Valider l'inventaire</a>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'stock/inventaire.js' %}"></script>
+{% endblock %}

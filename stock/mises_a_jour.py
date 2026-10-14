@@ -173,7 +173,7 @@ def derniere():
 
 
 def resume():
-    """Pour Réglages › Sauvegarde : nouvelle version disponible, dernière vérification réussie, échec éventuel."""
+    """Pour l'écran Aide : nouvelle version disponible, dernière vérification réussie, échec éventuel."""
     etat = lire_etat()
     verifie_le, essai_le = _date(etat.get('verifie_le')), _date(etat.get('essai_le'))
     echec = bool(essai_le and (not verifie_le or essai_le > verifie_le) and isinstance(etat.get('erreur'), str))

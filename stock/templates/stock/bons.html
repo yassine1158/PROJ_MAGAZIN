@@ -2,40 +2,69 @@
 {% load magasin %}
 {% block titre %}Historique des bons{% endblock %}
 {% block contenu %}
-<main class="page">
+<main class="page historique-bons">
   <div class="entete">
-    <div><h1>Historique des bons</h1><p>Toutes les entrées, sorties et corrections de stock.</p></div>
-    <form method="get" style="display:flex;gap:8px">
-      {% if type %}<input type="hidden" name="type" value="{{ type }}">{% endif %}
-      <input type="search" name="q" value="{{ q }}" placeholder="N° de bon, chantier, fournisseur…" style="min-width:280px">
-      <button class="btn">{% icone 'recherche' %}</button>
-    </form>
+    <div><h1>Historique des bons</h1><p>{% if filtre_actif %}{{ page.paginator.count }} bon{% if page.paginator.count > 1 %}s{% endif %} trouvé{% if page.paginator.count > 1 %}s{% endif %}{% else %}Toutes les entrées, sorties et corrections de stock{% endif %}.</p></div>
   </div>
   <nav class="onglets">
-    <a href="?{% if q %}q={{ q|urlencode }}{% endif %}" class="{% if not type %}actif{% endif %}">Tous</a>
-    <a href="?type=entree{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'entree' %}actif{% endif %}">Entrées</a>
-    <a href="?type=sortie{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'sortie' %}actif{% endif %}">Sorties</a>
-    <a href="?type=inventaire{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if type == 'inventaire' %}actif{% endif %}">Corrections</a>
+    {% for o in onglets %}<a href="?{{ o.lien }}" class="{% if o.actif %}actif{% endif %}">{{ o.libelle }}</a>{% endfor %}
   </nav>
+
+  <form method="get" class="carte filtres-rapport">
+    {% if type %}<input type="hidden" name="type" value="{{ type }}">{% endif %}
+    <div class="raccourcis">
+      {% for r in raccourcis %}<a class="puce{% if r.actif %} actif{% endif %}" href="?{{ r.lien }}">{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="grille-filtres">
+      <div class="champ champ-large"><label for="q">Rechercher</label><input type="search" id="q" name="q" value="{{ q }}" placeholder="N° de bon, article, chantier, fournisseur…"></div>
+      <div class="champ"><label for="du">Du</label><input type="date" id="du" name="du" value="{{ du|date:'Y-m-d' }}"></div>
+      <div class="champ"><label for="au">Au</label><input type="date" id="au" name="au" value="{{ au|date:'Y-m-d' }}"></div>
+      <div class="champ">
+        <label for="statut">Statut</label>
+        <select id="statut" name="statut">
+          <option value="">Tous</option>
+          {% for cle, s in statuts.items %}<option value="{{ cle }}"{% if statut == cle %} selected{% endif %}>{{ s.1 }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="boutons">
+        <button class="btn btn-vert">{% icone 'recherche' %} Afficher</button>
+        {% if filtre_actif %}<a class="btn" href="?{{ lien_effacer }}" title="Effacer la recherche et les filtres">{% icone 'annuler' %}</a>{% endif %}
+      </div>
+    </div>
+  </form>
+  {% if statut %}
+  <p class="filtre-statut">{{ statut_libelle }} seulement · <a href="?{{ lien_tout_statut }}">Voir tous les bons</a></p>
+  {% endif %}
+
   <section class="carte table-wrap">
-    <table class="data">
-      <thead><tr><th>N°</th><th>Date</th><th>Type</th><th>Pour / de</th><th class="num">Articles</th><th class="num">Montant</th><th></th></tr></thead>
+    <table class="data liste-bons">
+      <thead><tr><th>N°</th><th class="masquer-mobile">Date</th><th class="masquer-mobile">Type</th><th class="masquer-mobile">Pour / de</th><th class="num masquer-mobile">Articles</th><th class="num">Montant</th><th class="masquer-mobile"></th></tr></thead>
       <tbody>
       {% for b, t in bons %}
         <tr>
-          <td><a href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a></td>
-          <td>{{ b.date|date:"d/m/Y H:i" }}</td>
-          <td>{% if b.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% elif t == 'entree' %}<span class="badge badge-ok">Entrée</span>{% elif t == 'sortie' %}<span class="badge badge-warn">Sortie</span>{% else %}<span class="badge badge-gris">Correction</span>{% endif %}</td>
-          <td>{% if t == 'entree' %}{{ b.fournisseur|default:"—" }}{% elif t == 'sortie' %}{{ b.chantier }}{% if b.engin %} · {{ b.engin.code }}{% endif %}{% else %}{{ b.observation|default:"Inventaire" }}{% endif %}</td>
-          <td class="num">{{ b.lignes.all|length }}</td>
-          <td class="num">{% if t != 'inventaire' %}{{ b.total|montant }}{% endif %}</td>
-          <td class="num"><a href="{% url 'stock:bon_detail' t b.pk %}">Voir</a></td>
+          <td><a class="sans-coupure" href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a><div class="muted petit seulement-telephone">{{ b.date|date:"d/m/Y H:i" }} · {{ b.pour_de }}</div></td>
+          <td class="masquer-mobile sans-coupure">{{ b.date|date:"d/m/Y H:i" }}</td>
+          <td class="masquer-mobile">{% include 'stock/_badge_bon.html' %}</td>
+          <td class="masquer-mobile">{{ b.pour_de }}</td>
+          <td class="num masquer-mobile">{{ b.lignes.all|length }}</td>
+          <td class="num sans-coupure">{% if t != 'inventaire' %}{{ b.total|montant }}{% endif %}<div class="seulement-telephone">{% include 'stock/_badge_bon.html' %}</div></td>
+          <td class="num masquer-mobile"><a href="{% url 'stock:bon_detail' t b.pk %}">Voir</a></td>
         </tr>
       {% empty %}
-        <tr><td colspan="7" class="vide">Aucun bon.</td></tr>
+        <tr><td colspan="7" class="vide">
+          {% if q %}Aucun bon ne correspond à « {{ q }} »{% if du or au or statut %} avec ces filtres{% endif %}.
+          {% elif statut == 'brouillon' %}Aucun bon en brouillon.
+          {% elif du or au %}Aucun bon sur cette période.
+          {% elif statut == 'annule' %}Aucun bon annulé.
+          {% elif statut == 'valide' %}Aucun bon validé.
+          {% else %}Aucun bon pour l'instant : chaque entrée et chaque sortie enregistrée apparaîtra ici.
+            <div class="actions-vide"><a class="btn" href="{% url 'stock:entree' %}">{% icone 'entree' %} Entrée de stock</a><a class="btn" href="{% url 'stock:sortie' %}">{% icone 'sortie' %} Sortie de stock</a></div>{% endif %}
+          {% if filtre_actif %}<div class="actions-vide"><a class="btn" href="?{{ lien_effacer }}">Voir tous les bons</a></div>{% endif %}
+        </td></tr>
       {% endfor %}
       </tbody>
     </table>
   </section>
+  {% include 'stock/_pagination.html' with quoi='bons' %}
 </main>
 {% endblock %}

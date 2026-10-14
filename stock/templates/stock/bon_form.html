@@ -1,12 +1,14 @@
 {% extends 'stock/base.html' %}
 {% load static magasin %}
-{% block titre %}{% if type == 'entree' %}Entrée de stock{% else %}Sortie de stock{% endif %}{% endblock %}
+{% block titre %}{% if type == 'entree' %}Entrée de stock{% elif type == 'retour' %}Retour de chantier{% else %}Sortie de stock{% endif %}{% endblock %}
 {% block contenu %}
 <main class="page">
   <div class="entete">
     <div>
       {% if type == 'entree' %}
         <h1>Entrée de stock</h1><p>Marchandise reçue : le stock augmente dès que vous enregistrez.</p>
+      {% elif type == 'retour' %}
+        <h1>Retour de chantier</h1><p>Marchandise non utilisée rapportée d'un chantier : le stock augmente et la consommation du chantier baisse dès que vous enregistrez.</p>
       {% else %}
         <h1>Sortie de stock</h1><p>Marchandise donnée à un chantier : le stock diminue dès que vous enregistrez.</p>
       {% endif %}
@@ -17,9 +19,10 @@
   <div class="message message-error">{% icone 'alerte' %}<div>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>
   {% endif %}
 
-  <form method="post" id="form-bon" autocomplete="off">
+  <form method="post" id="form-bon" autocomplete="off" data-proteger{% if erreurs %} data-modifie{% endif %}>
     {% csrf_token %}
     <input type="hidden" name="jeton" value="{{ jeton }}">
+    {% if type == 'retour' and origine %}<input type="hidden" name="sortie" value="{{ origine.pk }}">{% endif %}
     <section class="carte carte-pad" style="margin-bottom:20px">
       <h2>1. Informations</h2>
       <div class="grille-champs">
@@ -34,22 +37,46 @@
             <label for="reference">N° bon de livraison / facture</label>
             <input id="reference" name="reference" value="{{ valeurs.reference|default:'' }}" placeholder="Ex. : BL 2026-145">
           </div>
-        {% else %}
+        {% elif type == 'retour' %}
           <div class="champ">
             <label for="chantier">Chantier *</label>
-            <input id="chantier" name="chantier" list="liste-chantiers" value="{{ valeurs.chantier|default:'' }}" placeholder="Choisir ou taper un chantier" required>
+            <input id="chantier" name="chantier" list="liste-chantiers" value="{{ valeurs.chantier|default:'' }}" placeholder="D'où revient la marchandise ?" required>
             <datalist id="liste-chantiers">{% for c in chantiers %}<option value="{{ c }}">{% endfor %}</datalist>
+            {% include 'stock/_proposition_nom.html' with p=nouveau_chantier champ='chantier' titre='Chantier inconnu.' case='' %}
           </div>
           <div class="champ">
             <label for="engin">Engin / camion</label>
             <input id="engin" name="engin" list="liste-engins" value="{{ valeurs.engin|default:'' }}" placeholder="Facultatif">
             <datalist id="liste-engins">{% for e in engins %}<option value="{{ e }}">{% endfor %}</datalist>
+            {% include 'stock/_proposition_nom.html' with p=nouvel_engin champ='engin' titre='Nouvel engin ?' case='Oui, créer cet engin' %}
+          </div>
+          <div class="champ">
+            <label for="rapporte_par">Rapporté par *</label>
+            <input id="rapporte_par" name="rapporte_par" value="{{ valeurs.rapporte_par|default:'' }}" placeholder="Nom de la personne" required>
+          </div>
+        {% else %}
+          <div class="champ">
+            <label for="chantier">Chantier *</label>
+            <input id="chantier" name="chantier" list="liste-chantiers" value="{{ valeurs.chantier|default:'' }}" placeholder="Choisir ou taper un chantier" required>
+            <datalist id="liste-chantiers">{% for c in chantiers %}<option value="{{ c }}">{% endfor %}</datalist>
+            {% include 'stock/_proposition_nom.html' with p=nouveau_chantier champ='chantier' titre='Nouveau chantier ?' case='Oui, créer ce chantier' %}
+          </div>
+          <div class="champ">
+            <label for="engin">Engin / camion</label>
+            <input id="engin" name="engin" list="liste-engins" value="{{ valeurs.engin|default:'' }}" placeholder="Facultatif">
+            <datalist id="liste-engins">{% for e in engins %}<option value="{{ e }}">{% endfor %}</datalist>
+            {% include 'stock/_proposition_nom.html' with p=nouvel_engin champ='engin' titre='Nouvel engin ?' case='Oui, créer cet engin' %}
           </div>
           <div class="champ">
             <label for="demandeur">Reçu par *</label>
             <input id="demandeur" name="demandeur" value="{{ valeurs.demandeur|default:'' }}" placeholder="Nom de la personne" required>
           </div>
         {% endif %}
+        <div class="champ">
+          <label for="date">Date</label>
+          <input id="date" name="date" type="date" value="{{ valeurs.date|default:aujourd_hui }}" max="{{ aujourd_hui }}"{% if date_mini %} min="{{ date_mini }}"{% endif %}>
+          <div class="aide">À changer seulement pour un bon saisi après coup{% if date_mini %} ({{ jours_retour }} jours en arrière au plus){% endif %}.</div>
+        </div>
       </div>
       <div class="champ" style="margin-bottom:0">
         <label for="observation">Remarque</label>
@@ -59,9 +86,12 @@
 
     <section class="carte carte-pad">
       <h2>2. Articles</h2>
+      {% if type == 'retour' %}
+        <p class="aide-retour">{% if origine %}Articles du bon <a href="{% url 'stock:bon_detail' 'sortie' origine.pk %}">{{ origine.numero }}</a> : tapez{% else %}Tapez{% endif %} la quantité rapportée. Une ligne laissée vide n'est pas comptée.</p>
+      {% endif %}
       <table class="lignes">
         <thead><tr>
-          <th>Article</th><th>Quantité</th>{% if type == 'entree' %}<th>Prix unitaire ({{ DEVISE }})</th>{% endif %}<th></th>
+          <th>Article</th><th>{% if type == 'retour' %}Quantité rapportée{% else %}Quantité{% endif %}</th>{% if type == 'entree' %}<th>Prix unitaire ({{ DEVISE }})</th>{% endif %}<th></th>
         </tr></thead>
         <tbody id="lignes"></tbody>
       </table>
@@ -69,19 +99,49 @@
       {% if type == 'entree' %}<div class="total-bon"><span class="muted">Total</span><b id="total">0</b> {{ DEVISE }}</div>{% endif %}
     </section>
 
+    <p class="raison-bloque" id="raison-bloque" role="alert" hidden></p>
     <div class="boutons-bas">
       <a class="btn" href="{% url 'stock:accueil' %}">Annuler</a>
-      <button type="submit" class="btn {% if type == 'entree' %}btn-vert{% else %}btn-orange{% endif %} btn-grand">
-        {% icone 'valider' %} {% if type == 'entree' %}Enregistrer l'entrée{% else %}Enregistrer la sortie{% endif %}
+      <button type="submit" class="btn {% if type == 'sortie' %}btn-orange{% else %}btn-vert{% endif %} btn-grand">
+        {% icone 'valider' %} {% if type == 'entree' %}Enregistrer l'entrée{% elif type == 'retour' %}Enregistrer le retour{% else %}Enregistrer la sortie{% endif %}
       </button>
     </div>
   </form>
+
+  {% if type == 'entree' %}
+  <dialog class="fenetre" id="creer-article" aria-labelledby="creer-article-titre">
+    <form method="dialog" id="form-creer-article" autocomplete="off" novalidate>
+      <h2 id="creer-article-titre">Nouvel article</h2>
+      <p class="muted petit">Le code est créé tout seul. L'emplacement et la photo pourront être ajoutés plus tard dans la fiche de l'article.</p>
+      <div class="message message-error" role="alert" hidden></div>
+      <div class="champ">
+        <label for="ca-designation">Désignation *</label>
+        <input id="ca-designation" maxlength="200" required placeholder="Ex. : Tôle ondulée 2 m">
+      </div>
+      <div class="grille-champs">
+        <div class="champ">
+          <label for="ca-unite">Unité</label>
+          <select id="ca-unite">{% for code, nom in unites %}<option value="{{ code }}">{{ nom }}</option>{% endfor %}</select>
+        </div>
+        <div class="champ">
+          <label for="ca-categorie">Catégorie *</label>
+          <input id="ca-categorie" list="liste-categories" maxlength="100" required placeholder="Ex. : Matériaux">
+          <datalist id="liste-categories">{% for c in categories %}<option value="{{ c }}">{% endfor %}</datalist>
+        </div>
+      </div>
+      <div class="boutons-bas">
+        <button type="button" class="btn" data-fermer>Annuler</button>
+        <button type="submit" class="btn btn-vert">{% icone 'valider' %} Créer l'article</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
 </main>
 {{ lignes_initiales|json_script:"lignes-initiales" }}
 {% endblock %}
 {% block scripts %}
 <script>
-  window.BON = { type: "{{ type }}", api: "{% url 'stock:api_articles' %}" };
+  window.BON = { type: "{{ type }}", api: "{% url 'stock:api_articles' %}", apiCreer: "{% url 'stock:api_article_creer' %}", apiReste: "{% url 'stock:api_reste_chantier' %}" };
 </script>
 <script src="{% static 'stock/bon.js' %}"></script>
 {% endblock %}

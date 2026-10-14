@@ -43,6 +43,7 @@
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <a class="btn" href="{% url 'stock:bloc_modifier' bloc.pk %}">{% icone 'modifier' %} Modifier le bloc</a>
         <a class="btn" href="{% url 'stock:rangee' bloc.pk %}">{% icone 'liste' %} Ajouter une rangée</a>
+        {% if bloc.etageres.all %}<a class="btn" href="{% url 'stock:etiquettes' %}?quoi=etageres&amp;bloc={{ bloc.pk }}" title="Étiquettes à QR code des étagères et des articles du bloc">{% icone 'qr' %} Étiquettes</a>{% endif %}
         <a class="btn btn-vert" href="{% url 'stock:etagere_nouvelle' bloc.pk %}">{% icone 'plus' %} Étagère</a>
       </div>
     </div>
@@ -57,7 +58,7 @@
             <td class="num">{{ e.x|qte }} ; {{ e.z|qte }}</td>
             <td class="num">{{ e.largeur|qte }} × {{ e.profondeur|qte }} × {{ e.hauteur|qte }}</td>
             <td class="num">{{ e.nb_niveaux }}</td>
-            <td class="num"><a class="btn btn-icone" href="{% url 'stock:etagere_modifier' e.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+            <td class="num sans-coupure"><a class="btn btn-icone masquer-mobile" href="{% url 'stock:etiquettes' %}?quoi=etageres&amp;etagere={{ e.pk }}" title="Étiquettes de l'étagère {{ e.code }}">{% icone 'qr' %}</a> <a class="btn btn-icone" href="{% url 'stock:etagere_modifier' e.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
           </tr>
         {% endfor %}
         </tbody>

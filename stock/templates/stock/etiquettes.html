@@ -1,0 +1,264 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Étiquettes{% endblock %}
+{% block contenu %}
+<main class="page etiquettes">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <h1>Étiquettes</h1>
+      <p>Étiquettes à QR code à coller sur les articles et les étagères. Scanné avec un téléphone, le QR code ouvre l'article (ou le contenu de l'étagère) dans le logiciel.</p>
+    </div>
+  </div>
+
+  {% if base_locale %}
+  <div class="message message-warning">{% icone 'alerte' %}<div>Les QR codes contiendront l'adresse <b>{{ base }}</b>, qui ne s'ouvre que sur cet ordinateur : un téléphone ne pourra pas l'ouvrir. Activez d'abord l'accès des téléphones au logiciel, puis imprimez les étiquettes.</div></div>
+  {% endif %}
+
+  <nav class="onglets">
+    {% for o in onglets %}<a href="{{ o.lien }}" class="{% if o.actif %}actif{% endif %}">{% if forloop.first %}{% icone 'qr' %}{% else %}{% icone 'etagere' %}{% endif %} {{ o.libelle }}</a>{% endfor %}
+  </nav>
+
+{% if quoi == 'articles' %}
+  <form method="get" class="carte filtres-rapport">
+    {% for a in choix.articles %}<input type="hidden" name="article" value="{{ a }}">{% endfor %}
+    <div class="grille-filtres">
+      <div class="champ champ-large"><label for="q">Rechercher</label><input type="search" id="q" name="q" value="{{ choix.q }}" placeholder="Code, nom, autre nom…"></div>
+      <div class="champ">
+        <label for="categorie">Catégorie</label>
+        <select id="categorie" name="categorie" onchange="this.form.submit()">
+          <option value="">Toutes</option>
+          {% for c in categories %}<option value="{{ c.pk }}"{% if choix.categorie.pk == c.pk %} selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+        </select>
+      </div>
+      {% if blocs %}
+      <div class="champ">
+        <label for="bloc">Bloc</label>
+        <select id="bloc" name="bloc" onchange="if (this.form.etagere) this.form.etagere.value = ''; this.form.submit()">
+          <option value="">Tous les blocs</option>
+          {% for b in blocs %}<option value="{{ b.pk }}"{% if choix.bloc.pk == b.pk %} selected{% endif %}>{{ b }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      {% if choix.bloc %}
+      <div class="champ">
+        <label for="etagere">Étagère</label>
+        <select id="etagere" name="etagere" onchange="this.form.submit()">
+          <option value="">Tout le bloc {{ choix.bloc.code }}</option>
+          {% for e in etageres_bloc %}<option value="{{ e.pk }}"{% if choix.etagere.pk == e.pk %} selected{% endif %}>Étagère {{ e.code }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="champ"><label for="depuis">Nouveaux depuis le</label><input type="date" id="depuis" name="depuis" value="{{ choix.depuis|date:'Y-m-d' }}"></div>
+      <div class="boutons">
+        <button class="btn btn-vert">{% icone 'recherche' %} Afficher</button>
+        {% if filtre_actif or choix.etagere %}<a class="btn" href="{{ lien_effacer }}" title="Effacer les filtres">{% icone 'annuler' %}</a>{% endif %}
+      </div>
+    </div>
+    {% if choix.articles %}<p class="petit muted filtre-fiche">Seulement {% if choix.articles|length == 1 %}l'article choisi depuis sa fiche{% else %}les {{ choix.articles|length }} articles choisis{% endif %} · <a href="{{ lien_effacer }}">voir tous les articles</a></p>{% endif %}
+  </form>
+
+  <form method="post" id="form-etiquettes" data-total="{{ total }}" data-limite="{{ limite_etiquettes }}"{% if not BUREAU %} target="_blank"{% endif %}>
+    {% csrf_token %}
+    <input type="hidden" name="quoi" value="articles">
+    {% for cle, valeur in filtres %}<input type="hidden" name="{{ cle }}" value="{{ valeur }}">{% endfor %}
+    {% if cases %}<input type="hidden" name="cases" value="1">{% endif %}
+
+    <div class="grille-etiquettes">
+      <section class="carte carte-pad">
+        <h2>Format de la planche</h2>
+        <div class="choix-formats">
+          {% for cle, f in formats.items %}
+          <label class="choix-format">
+            <input type="radio" name="format" value="{{ cle }}" data-par-page="{{ f.par_page }}"{% if cle == format_defaut %} checked{% endif %}>
+            <span><b>{{ f.libelle }}</b><span class="muted petit">{{ f.detail }}</span></span>
+          </label>
+          {% endfor %}
+        </div>
+        <div class="grille-champs reglages-planche">
+          <div class="champ"><label for="exemplaires">Exemplaires par article</label><input type="number" id="exemplaires" name="exemplaires" value="1" min="1" max="50" inputmode="numeric"></div>
+          <div class="champ"><label for="depart">Commencer à l'étiquette n°</label><input type="number" id="depart" name="depart" value="1" min="1" max="24" inputmode="numeric"><div class="aide">Pour finir une planche déjà entamée (1 = en haut à gauche).</div></div>
+        </div>
+        <label class="case-filtre"><input type="checkbox" name="contours" value="1"> Imprimer les contours (papier ordinaire, à découper)</label>
+      </section>
+
+      <section class="carte carte-pad">
+        <h2>Aperçu</h2>
+        {% if exemple %}
+        <div class="etiquette-modele" id="modele">
+          {{ qr_exemple|safe }}
+          <div class="texte"><b class="code">{{ exemple.code }}</b><span class="designation">{{ exemple.designation }}</span>{% if lieu_grand %}<span class="lieu" id="lieu-modele" data-grand="{{ lieu_grand }}" data-petit="{{ lieu_petit }}">{{ lieu_grand }}</span>{% endif %}</div>
+        </div>
+        <p class="muted petit">Essayez : scannez ce QR code sur l'écran avec l'appareil photo d'un téléphone. Il ouvre <span class="adresse">{{ base }}{% url 'stock:qr_article' exemple.code %}</span></p>
+        {% else %}
+        <p class="vide">Aucun article à étiqueter avec ces filtres.</p>
+        {% endif %}
+        <p class="muted petit">Douchette (lecteur de codes) : réglez-la en clavier français (AZERTY). Le code lu, ou l'adresse du QR code, trouve l'article dans « Entrée » et « Sortie ».</p>
+      </section>
+    </div>
+
+    <div class="carte barre-impression">
+      <div id="resume" aria-live="polite"><b>{{ total }}</b> étiquette{{ total|pluralize }} · <b>{{ pages }}</b> page{{ pages|pluralize }} A4</div>
+      <button class="btn btn-vert btn-grand" id="btn-imprimer"{% if not total %} disabled{% endif %}>{% icone 'imprimer' %} Imprimer les étiquettes</button>
+    </div>
+
+    <section class="carte table-wrap">
+      <table class="data liste-etiquettes">
+        <thead><tr>
+          {% if cases %}<th class="col-case"><input type="checkbox" id="tous" checked aria-label="Tout cocher ou tout décocher"></th>{% endif %}
+          <th>Article{% if cases and total %} <span class="muted compte-coches" id="compte"></span>{% endif %}</th><th class="masquer-mobile">Emplacement</th><th class="masquer-mobile">Catégorie</th>
+        </tr></thead>
+        <tbody>
+        {% if not cases %}
+          <tr><td colspan="3" class="message-liste">{{ total }} articles répondent à ces filtres : <b>ils seront tous imprimés</b>. Pour n'en choisir que quelques-uns, cherchez ou filtrez (au plus {{ limite_cases }} pour les cocher un par un).</td></tr>
+        {% endif %}
+        {% for a in articles %}
+          <tr>
+            {% if cases %}<td class="col-case"><input type="checkbox" id="c{{ a.pk }}" name="choisi" value="{{ a.pk }}" checked></td>{% endif %}
+            <td>{% if cases %}<label for="c{{ a.pk }}">{% endif %}<b>{{ a.designation }}</b><div class="muted petit">{{ a.code }}<span class="seulement-telephone"> · {% if a.etagere_id %}{{ a.etagere.bloc.code }} › {{ a.etagere.code }}{% if a.niveau %} › niv. {{ a.niveau }}{% endif %}{% else %}non rangé{% endif %}</span></div>{% if cases %}</label>{% endif %}</td>
+            <td class="masquer-mobile">{% if a.etagere_id %}{{ a.emplacement }}{% else %}<span class="muted">Non rangé</span>{% endif %}</td>
+            <td class="masquer-mobile">{{ a.categorie }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="vide">
+            Aucun article actif avec ces filtres.
+            {% if filtre_actif or choix.etagere %}<div class="actions-vide"><a class="btn" href="{{ lien_effacer }}">Voir tous les articles</a></div>{% endif %}
+          </td></tr>
+        {% endfor %}
+        {% if autres %}
+          <tr><td colspan="3" class="muted petit">… et {{ autres }} autre{{ autres|pluralize }}.</td></tr>
+        {% endif %}
+        </tbody>
+      </table>
+    </section>
+  </form>
+
+{% else %}
+  <form method="get" class="carte filtres-rapport">
+    <input type="hidden" name="quoi" value="etageres">
+    <div class="grille-filtres">
+      <div class="champ champ-large">
+        <label for="bloc">Bloc</label>
+        <select id="bloc" name="bloc" onchange="this.form.submit()">
+          <option value="">Tous les blocs</option>
+          {% for b in blocs %}<option value="{{ b.pk }}"{% if choix.bloc.pk == b.pk %} selected{% endif %}>{{ b }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="boutons">
+        <button class="btn btn-vert">{% icone 'recherche' %} Afficher</button>
+        {% if choix.bloc %}<a class="btn" href="{{ lien_effacer }}" title="Tous les blocs">{% icone 'annuler' %}</a>{% endif %}
+      </div>
+    </div>
+  </form>
+
+  <form method="post" id="form-etiquettes" data-par-page="{{ par_page }}"{% if not BUREAU %} target="_blank"{% endif %}>
+    {% csrf_token %}
+    <input type="hidden" name="quoi" value="etageres">
+    {% for cle, valeur in filtres %}<input type="hidden" name="{{ cle }}" value="{{ valeur }}">{% endfor %}
+
+    <div class="grille-etiquettes">
+      <section class="carte carte-pad">
+        <h2>Une grande étiquette par étagère</h2>
+        <p class="muted">Format A6, {{ par_page }} par page A4, à découper suivant les pointillés : le bloc à sa couleur du plan, le code de l'étagère en très gros, le QR code et ses niveaux (1 = en bas).</p>
+        <p class="muted">Scanné avec un téléphone, le QR code ouvre la liste des articles rangés sur l'étagère.</p>
+      </section>
+      <section class="carte carte-pad">
+        <h2>Aperçu</h2>
+        {% if exemple %}
+        <div class="etiquette-etagere">
+          <div class="bandeau" style="background:{{ bandeau.0 }};color:{{ bandeau.1 }}">Bloc {{ exemple.bloc.code }}{% if exemple.bloc.nom %}<span>{{ exemple.bloc.nom }}</span>{% endif %}</div>
+          <div class="grand-code">{{ exemple.code }}</div>
+          <div class="sous-titre">Bloc {{ exemple.bloc.code }} – Étagère {{ exemple.code }}</div>
+          <div class="bas">
+            {{ qr_exemple|safe }}
+            <div class="niveaux"><span class="titre">Niveaux</span>{% for n in niveaux_exemple %}<span class="niveau{% if n == 1 %} bas{% endif %}">Niveau {{ n }}{% if n == 1 %} (bas){% endif %}</span>{% endfor %}</div>
+          </div>
+          <div class="pied">Scannez le QR code : liste des articles de cette étagère</div>
+        </div>
+        {% else %}
+        <p class="vide">Aucune étagère : dessinez d'abord le <a href="{% url 'stock:reglages_plan' %}">plan du magasin</a>.</p>
+        {% endif %}
+      </section>
+    </div>
+
+    <div class="carte barre-impression">
+      <div id="resume" aria-live="polite"></div>
+      <button class="btn btn-vert btn-grand" id="btn-imprimer"{% if not etageres %} disabled{% endif %}>{% icone 'imprimer' %} Imprimer les étiquettes</button>
+    </div>
+
+    {% if etageres %}
+    <section class="carte table-wrap">
+      <table class="data liste-etiquettes">
+        <thead><tr>
+          <th class="col-case"><input type="checkbox" id="tous" aria-label="Tout cocher ou tout décocher"></th>
+          <th>Étagère</th><th class="num">Niveaux</th><th class="num">Articles</th>
+        </tr></thead>
+        <tbody>
+        {% for e in etageres %}
+          <tr>
+            <td class="col-case"><input type="checkbox" id="c{{ e.pk }}" name="choisi" value="{{ e.pk }}"{% if not choix.etagere or choix.etagere.pk == e.pk %} checked{% endif %}></td>
+            <td><label for="c{{ e.pk }}"><b>Bloc {{ e.bloc.code }} – Étagère {{ e.code }}</b>{% if e.bloc.nom %}<div class="muted petit">{{ e.bloc.nom }}</div>{% endif %}</label></td>
+            <td class="num">{{ e.nb_niveaux }}</td>
+            <td class="num"><a href="{% url 'stock:articles' %}?etagere={{ e.pk }}">{{ e.nb_articles }}</a></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+  </form>
+{% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(() => {
+  const form = document.getElementById('form-etiquettes');
+  if (!form) return;
+  const cases = [...form.querySelectorAll('input[name=choisi]')];
+  const tous = document.getElementById('tous');
+  const resume = document.getElementById('resume');
+  const bouton = document.getElementById('btn-imprimer');
+  const compte = document.getElementById('compte');
+  const modele = document.getElementById('modele');
+  const lieu = document.getElementById('lieu-modele');
+  const limite = Number(form.dataset.limite || 0);
+  const { exemplaires, depart } = form.elements;
+
+  function entier(champ, mini, maxi) {
+    return champ ? Math.max(mini, Math.min(maxi, parseInt(champ.value, 10) || mini)) : 1;
+  }
+  function gras(texte) {
+    const b = document.createElement('b');
+    b.textContent = texte;
+    return b;
+  }
+  function maj() {
+    const format = form.querySelector('input[name=format]:checked');
+    const parPage = Number(format ? format.dataset.parPage : form.dataset.parPage);
+    const coches = cases.filter((c) => c.checked).length;
+    const n = cases.length ? coches : Number(form.dataset.total || 0);
+    const etiquettes = n * entier(exemplaires, 1, 50);
+    const premiere = entier(depart, 1, parPage);
+    const pages = etiquettes ? Math.ceil((etiquettes + premiere - 1) / parPage) : 0;
+    if (depart) depart.max = parPage;
+    resume.replaceChildren(gras(etiquettes), ` étiquette${etiquettes > 1 ? 's' : ''} · `, gras(pages), ` page${pages > 1 ? 's' : ''} A4`);
+    if (limite && etiquettes > limite) resume.append(` : c'est trop (au plus ${limite}), imprimez en plusieurs fois.`);
+    bouton.disabled = !etiquettes || (limite && etiquettes > limite);
+    if (tous) {
+      tous.checked = coches === cases.length;
+      tous.indeterminate = coches > 0 && coches < cases.length;
+    }
+    if (compte) compte.textContent = `(${coches} cochés sur ${cases.length})`;
+    if (modele && format) modele.classList.toggle('petit-format', format.value === 'a4-65');
+    if (lieu && format) lieu.textContent = format.value === 'a4-65' ? lieu.dataset.petit : lieu.dataset.grand;
+  }
+  if (tous) tous.addEventListener('change', () => { cases.forEach((c) => { c.checked = tous.checked; }); maj(); });
+  const autre = (e) => { if (e.target !== tous) maj(); };  // la case « tout » se met à jour seule
+  form.addEventListener('input', autre);
+  form.addEventListener('change', autre);
+  maj();
+})();
+</script>
+{% endblock %}

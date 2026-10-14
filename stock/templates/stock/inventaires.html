@@ -1,0 +1,79 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Inventaire{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div><h1>Inventaire</h1><p>Comptez le stock réel : les écarts sont corrigés dans le stock et gardés dans l'historique.</p></div>
+    {% if request.user.is_staff %}<a class="btn btn-vert" href="{% url 'stock:inventaire_nouveau' %}">{% icone 'plus' %} Nouvel inventaire</a>{% endif %}
+  </div>
+
+  {% if valide %}
+  <div class="message message-success inventaire-valide">{% icone 'valider' %}<div>
+    <b>Inventaire {{ valide.numero }} validé :</b>
+    {% if valide.nb_ecarts %}{{ valide.nb_ecarts }} écart{{ valide.nb_ecarts|pluralize }} corrigé{{ valide.nb_ecarts|pluralize }} dans le stock.{% else %}aucun écart, le stock était juste.{% endif %}
+    Imprimez le résultat (écarts en quantité et en valeur) et faites-le signer.
+    <div class="actions-bon"><a class="btn btn-vert btn-grand" autofocus href="{% url 'stock:inventaire_resultat' valide.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Imprimer le résultat</a>
+    <a class="btn" href="{% url 'stock:inventaire' valide.pk %}">Voir les écarts</a></div>
+  </div></div>
+  {% endif %}
+
+  <h2>En cours</h2>
+  {% if en_cours %}
+  <div class="inventaires-en-cours">
+    {% for inv in en_cours %}
+    <section class="carte carte-pad inventaire-carte">
+      <div class="inventaire-titre">
+        <div>
+          <a href="{% url 'stock:inventaire' inv.pk %}"><b>{{ inv.perimetre|default:"Inventaire" }}</b></a>
+          <div class="muted petit">{{ inv.numero }} · commencé le {{ inv.date|date:"d/m/Y" }}{% if inv.cree_par %} par {{ inv.cree_par.get_full_name|default:inv.cree_par.get_username }}{% endif %}</div>
+          {% if inv.observation %}<div class="muted petit">{{ inv.observation }}</div>{% endif %}
+        </div>
+        <span class="badge badge-warn">En cours</span>
+      </div>
+      <div class="progression-inventaire">
+        <div class="barre"><span style="width:{{ inv.pourcent }}%"></span></div>
+        <span><b>{{ inv.comptes }}</b> / {{ inv.nb }} compté{{ inv.comptes|pluralize }}</span>
+      </div>
+      <div class="actions-inventaire">
+        <a class="btn btn-vert" href="{% url 'stock:inventaire' inv.pk %}">{% icone 'inventaire' %} Compter</a>
+        <a class="btn" href="{% url 'stock:inventaire_fiche' inv.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Fiche de comptage</a>
+        {% if request.user.is_staff %}<a class="btn" href="{% url 'stock:inventaire_valider' inv.pk %}">{% icone 'valider' %} Valider</a>{% endif %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+  {% else %}
+  <section class="carte vide inventaire-aucun">
+    Aucun inventaire en cours.
+    {% if request.user.is_staff %}Cliquez sur « Nouvel inventaire » pour choisir ce que vous allez compter.{% else %}Un responsable peut en lancer un.{% endif %}
+  </section>
+  {% endif %}
+
+  <h2 class="titre-section">Inventaires terminés</h2>
+  <section class="carte table-wrap">
+    <table class="data table-inventaires">
+      <thead><tr><th>N°</th><th>Validé le</th><th>Ce qui a été compté</th><th class="num">Comptés</th><th class="num">Écarts</th><th class="num">Valeur des écarts</th><th></th></tr></thead>
+      <tbody>
+      {% for inv in termines %}
+        <tr>
+          <td class="ti-num"><a href="{% url 'stock:inventaire' inv.pk %}"><b>{{ inv.numero }}</b></a></td>
+          <td class="ti-date">{% if inv.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% else %}{{ inv.date_validation|default:inv.date|date:"d/m/Y" }}{% endif %}</td>
+          <td class="ti-per">{{ inv.perimetre|default:inv.observation|default:"—" }}</td>
+          <td class="num ti-cpt"><span class="etiq-tel">Comptés : </span>{{ inv.comptes }} / {{ inv.nb }}</td>
+          <td class="num ti-eca"><span class="etiq-tel">Écarts : </span>{% if inv.statut == 'VALIDE' %}{{ inv.nb_ecarts }}{% else %}—{% endif %}</td>
+          <td class="num ti-val">{% if inv.statut == 'VALIDE' %}{% if inv.valeur_ecarts > 0 %}+{% endif %}{{ inv.valeur_ecarts|montant }} {{ DEVISE }}{% else %}—{% endif %}</td>
+          <td class="num ti-act">
+            {% if inv.statut == 'VALIDE' %}<a href="{% url 'stock:inventaire_resultat' inv.pk %}"{% if not BUREAU %} target="_blank"{% endif %} title="Imprimer le résultat" aria-label="Imprimer le résultat">{% icone 'imprimer' %}</a>{% endif %}
+            <a href="{% url 'stock:inventaire' inv.pk %}">Voir</a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="vide">Aucun inventaire terminé pour le moment.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <p class="muted petit">Les corrections d'un seul article (depuis la fiche de l'article) sont dans l'<a href="{% url 'stock:bons' %}?type=inventaire">historique des bons</a>.</p>
+</main>
+{% endblock %}

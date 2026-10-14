@@ -5,6 +5,7 @@
   const NS = 'http://www.w3.org/2000/svg';
   const $ = (id) => document.getElementById(id);
   const svg = $('plan');
+  const echapper = (s) => { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML.replace(/"/g, '&quot;'); };
   const PALETTE = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
 
   // ---------------------------------------------------------------- état
@@ -15,7 +16,9 @@
   let outil = 'selection';
   let aimant = true;
   let modifie = false;
-  let historique = [];
+  let enregistre = '';      // plan tel qu'il est en base (JSON), pour savoir s'il reste des modifications
+  let historique = [];      // états précédents (Annuler)
+  let refaire = [];         // états annulés (Rétablir)
   let compteur = 0;
   const nouvelleCle = (p) => `${p}n${++compteur}`;
   let vue = { x: -2, z: -2, l: 30, h: 20 }; // viewBox
@@ -29,7 +32,7 @@
       for (const t of b.etageres) {
         e.etageres.push({ cle: `e${t.id}`, id: t.id, bloc: cle, code: t.code, x: b.x + t.x, z: b.z + t.z,
           largeur: t.largeur, profondeur: t.profondeur, hauteur: t.hauteur, niveaux: t.niveaux,
-          tournee: t.tournee, articles: t.articles || 0 });
+          tournee: t.tournee, articles: t.articles || 0, par_niveau: t.par_niveau || [], niveaux_base: t.niveaux });
       }
     }
     for (const m of plan.murs) e.murs.push({ cle: `m${m.id}`, ...m });
@@ -49,19 +52,31 @@
   }
 
   const copie = (o) => JSON.parse(JSON.stringify(o));
-  function memoriser() {
-    historique.push(copie(etat));
+  function memoriser(avant = copie(etat)) {
+    historique.push(avant);
     if (historique.length > 100) historique.shift();
-    modifie = true;
-    majBoutons();
+    refaire = [];
+    majBoutons(true);
   }
   function annuler() {
     if (!historique.length) return;
+    refaire.push(copie(etat));
     etat = historique.pop();
+    apresRetour();
+  }
+  function retablir() {
+    if (!refaire.length) return;
+    historique.push(copie(etat));
+    etat = refaire.pop();
+    apresRetour();
+  }
+  function apresRetour() {
+    glisse = null; trace = null;
     if (selection && !trouver(selection)) selection = null;
-    modifie = true;
     toutRedessiner();
   }
+  // Articles rangés au-dessus du niveau n (ils empêchent de réduire le nombre de niveaux).
+  const articlesAuDessus = (t, n) => (t.par_niveau || []).slice(Math.max(0, n)).reduce((s, x) => s + x, 0);
 
   // ---------------------------------------------------------------- outils géométriques
   const arrondi = (v) => Math.round(v * 100) / 100;
@@ -241,6 +256,7 @@
   }
 
   function dessiner() {
+    if (!svg.clientWidth) return; // plan 2D caché (onglet Vue 3D) : redessiné quand il réapparaît
     svg.setAttribute('viewBox', `${vue.x} ${vue.z} ${vue.l} ${vue.h}`);
     dessinerGrille();
     const contenu = $('contenu');
@@ -339,7 +355,7 @@
   // ---------------------------------------------------------------- panneau de propriétés
   function champ(label, nom, valeur, type = 'number', extra = '') {
     const v = valeur ?? '';
-    return `<div class="champ"><label>${label}</label><input type="${type}" data-prop="${nom}" value="${String(v).replace(/"/g, '&quot;')}" ${type === 'number' ? 'step="0.1"' : ''} ${extra}></div>`;
+    return `<div class="champ"><label>${label}</label><input type="${type}" data-prop="${nom}" value="${echapper(v)}" ${type === 'number' ? 'step="0.1"' : ''} ${extra}></div>`;
   }
 
   function panneau() {
@@ -352,25 +368,35 @@
     let html = '';
     if (selection.type === 'bloc') {
       const n = etat.etageres.filter((t) => t.bloc === o.cle).length;
-      html = `<h3>Bloc ${o.code}</h3><p class="muted petit">${n} étagère(s)</p>
+      html = `<h3>Bloc ${echapper(o.code)}</h3><p class="muted petit">${n} étagère(s)</p>
         <div class="grille-2">${champ('Code', 'code', o.code, 'text', 'maxlength="10"')}${champ('Couleur', 'couleur', o.couleur, 'color')}</div>
         ${champ('Nom', 'nom', o.nom, 'text', 'maxlength="100" placeholder="Ex. : Pièces moteur"')}
         <div class="grille-2">${champ('Largeur (m)', 'largeur', o.largeur)}${champ('Profondeur (m)', 'profondeur', o.profondeur)}</div>
         <div class="grille-2">${champ('Position X (m)', 'x', o.x)}${champ('Position Z (m)', 'z', o.z)}</div>`;
     } else if (selection.type === 'etagere') {
-      const options = etat.blocs.map((b) => `<option value="${b.cle}" ${b.cle === o.bloc ? 'selected' : ''}>Bloc ${b.code}</option>`).join('');
-      html = `<h3>Étagère ${o.code}</h3>
+      const options = etat.blocs.map((b) => `<option value="${echapper(b.cle)}" ${b.cle === o.bloc ? 'selected' : ''}>Bloc ${echapper(b.code)}</option>`).join('');
+      const haut = (o.par_niveau || []).length; // plus haut niveau occupé par un article
+      const base = o.niveaux_base || 30;        // niveaux enregistrés : seule une réduction est refusée
+      const auDessus = articlesAuDessus(o, o.niveaux);
+      const alerte = !auDessus ? ''
+        : o.niveaux < base ? `${auDessus} article(s) sont rangés au niveau ${o.niveaux + 1} ou plus.
+            Déplacez-les (fiche de l'article) avant de réduire les niveaux : sinon le plan ne pourra pas être enregistré.`
+        : `${auDessus} article(s) sont rangés au niveau ${o.niveaux + 1} ou plus, qui n'existe pas sur cette étagère.
+            Ajoutez des niveaux ou déplacez ces articles.`;
+      html = `<h3>Étagère ${echapper(o.code)}</h3>
         ${o.articles ? `<p class="muted petit">${o.articles} article(s) rangé(s) ici</p>` : ''}
         <div class="grille-2">${champ('Code', 'code', o.code, 'text', 'maxlength="20"')}
           <div class="champ"><label>Bloc</label><select data-prop="bloc">${options}</select></div></div>
         <div class="grille-2">${champ('Largeur (m)', 'largeur', o.largeur)}${champ('Profondeur (m)', 'profondeur', o.profondeur)}</div>
-        <div class="grille-2">${champ('Hauteur (m)', 'hauteur', o.hauteur)}${champ('Niveaux', 'niveaux', o.niveaux, 'number', 'min="1" max="30" step="1"')}</div>
+        <div class="grille-2">${champ('Hauteur (m)', 'hauteur', o.hauteur)}${champ('Niveaux', 'niveaux', o.niveaux, 'number', `min="${Math.max(1, Math.min(haut, base))}" max="30" step="1"`)}</div>
+        ${alerte ? `<p class="alerte-niveaux" role="alert">${alerte}</p>`
+          : haut ? `<p class="aide aide-niveaux">Articles rangés jusqu'au niveau ${haut} : pour descendre en dessous, déplacez-les d'abord.</p>` : ''}
         <div class="grille-2">${champ('Position X (m)', 'x', o.x)}${champ('Position Z (m)', 'z', o.z)}</div>
         <button class="btn" data-action="tourner" style="width:100%">↻ Tourner de 90°</button>`;
     } else if (selection.type === 'element') {
       const t = TYPES[o.type];
-      html = `<h3>${t.nom}</h3>
-        ${champ(o.type === 'texte' ? 'Texte affiché' : 'Nom affiché', 'nom', o.nom, 'text', `maxlength="60" placeholder="${t.nom}"`)}
+      html = `<h3>${echapper(t.nom)}</h3>
+        ${champ(o.type === 'texte' ? 'Texte affiché' : 'Nom affiché', 'nom', o.nom, 'text', `maxlength="60" placeholder="${echapper(t.nom)}"`)}
         <div class="grille-2">${champ('Largeur (m)', 'largeur', o.largeur)}${champ(o.type === 'texte' ? 'Taille du texte (m)' : 'Profondeur (m)', 'profondeur', o.profondeur)}</div>
         <div class="grille-2">${champ('Hauteur (m)', 'hauteur', o.hauteur)}${champ('Rotation (°)', 'rotation', o.rotation, 'number', 'step="15"')}</div>
         <div class="grille-2">${champ('Couleur', 'couleur', o.couleur, 'color')}<div></div></div>
@@ -396,7 +422,6 @@
     const prop = ev.target.dataset.prop;
     const o = trouver(selection);
     if (!prop || !o) return;
-    memoriser();
     let v = ev.target.value;
     if (ev.target.type === 'number') {
       v = parseFloat(String(v).replace(',', '.'));
@@ -405,6 +430,7 @@
       if (prop === 'niveaux') v = Math.max(1, Math.min(30, Math.round(v)));
       v = arrondi(v);
     }
+    memoriser();
     if (selection.type === 'mur' && (prop === 'longueur' || prop === 'angle')) {
       // Le début du mur reste fixe ; la fin bouge.
       const L = prop === 'longueur' ? Math.max(0.1, v) : longueurMur(o);
@@ -474,7 +500,7 @@
       etat.murs.push(m); selection = { type: 'mur', cle: m.cle };
     } else if (selection.type === 'etagere') {
       const { l } = emprise(o);
-      const t = { ...o, cle: nouvelleCle('e'), id: null, articles: 0, x: arrondi(o.x + l + 0.2),
+      const t = { ...o, cle: nouvelleCle('e'), id: null, articles: 0, par_niveau: [], x: arrondi(o.x + l + 0.2),
         code: codeEtagereLibre(o.bloc, (o.code.match(/^\D*/) || ['E'])[0] || 'E') };
       const b = blocEn(t.x + emprise(t).l / 2, t.z + emprise(t).p / 2);
       if (b) t.bloc = b.cle;
@@ -485,7 +511,7 @@
         couleur: PALETTE[etat.blocs.length % PALETTE.length] };
       etat.blocs.push(b);
       for (const t of etat.etageres.filter((e) => e.bloc === o.cle)) {
-        etat.etageres.push({ ...t, cle: nouvelleCle('e'), id: null, articles: 0, bloc: b.cle, x: arrondi(t.x + o.largeur + 1) });
+        etat.etageres.push({ ...t, cle: nouvelleCle('e'), id: null, articles: 0, par_niveau: [], bloc: b.cle, x: arrondi(t.x + o.largeur + 1) });
       }
       selection = { type: 'bloc', cle: b.cle };
     }
@@ -546,11 +572,9 @@
 
     if (outil === 'selection') {
       if (poignee === 'rotation' && selection) {
-        memoriser();
-        glisse = { mode: 'rotation', objet: trouver(selection) };
+        glisse = { mode: 'rotation', objet: trouver(selection), avant: copie(etat) };
       } else if (poignee && selection) {
-        memoriser();
-        glisse = { mode: 'poignee', poignee, objet: trouver(selection), type: selection.type };
+        glisse = { mode: 'poignee', poignee, objet: trouver(selection), type: selection.type, avant: copie(etat) };
       } else if (cible) {
         selection = { type: cible.dataset.type, cle: cible.dataset.cle };
         memoriserAuPremierMouvement = true;
@@ -575,6 +599,12 @@
   });
 
   let memoriserAuPremierMouvement = false;
+  // Poignée ou rotation : l'état d'avant n'entre dans l'historique qu'au premier vrai changement.
+  function memoriserGlisse() {
+    if (!glisse?.avant) return;
+    memoriser(glisse.avant);
+    glisse.avant = null;
+  }
 
   svg.addEventListener('pointermove', (ev) => {
     const p = pointMonde(ev);
@@ -606,7 +636,9 @@
       const o = glisse.objet;
       let a = (Math.atan2(p.x - o.x, -(p.z - o.z)) * 180) / Math.PI;
       if (!ev.shiftKey) a = Math.round(a / 15) * 15; // par pas de 15° ; Maj = libre
-      o.rotation = arrondi(((a % 360) + 360) % 360);
+      a = arrondi(((a % 360) + 360) % 360);
+      if (a !== o.rotation) memoriserGlisse();
+      o.rotation = a;
       dessiner();
       $('mesure').textContent = `Rotation : ${o.rotation}°`;
       return;
@@ -614,7 +646,9 @@
     if (glisse?.mode === 'poignee') {
       let x = caler(p.x), z = caler(p.z);
       if (glisse.type === 'mur') ({ x, z } = aimanterBout(p.x, p.z, glisse.objet, x, z));
+      const avant = JSON.stringify(glisse.objet);
       redimensionner(glisse, x, z, ev.shiftKey);
+      if (JSON.stringify(glisse.objet) !== avant) memoriserGlisse();
       dessiner();
       afficherMesure(glisse.objet, glisse.type);
       return;
@@ -667,10 +701,18 @@
     for (const o of etat.elements) { xs.push(o.x - o.largeur / 2, o.x + o.largeur / 2); zs.push(o.z - o.profondeur / 2, o.z + o.profondeur / 2); }
     const ratio = svg.clientHeight / svg.clientWidth || 0.6;
     if (!xs.length) { vue = { x: -2, z: -2, l: 30, h: 30 * ratio }; dessiner(); return; }
+    const cadrer = (minX, maxX, minZ, maxZ) => {
+      const l = Math.max(maxX - minX, (maxZ - minZ) / ratio);
+      vue = { x: (minX + maxX) / 2 - l / 2, z: (minZ + maxZ) / 2 - (l * ratio) / 2, l, h: l * ratio };
+      dessiner();
+    };
     const minX = Math.min(...xs) - 2, maxX = Math.max(...xs) + 2, minZ = Math.min(...zs) - 2, maxZ = Math.max(...zs) + 2;
-    const l = Math.max(maxX - minX, (maxZ - minZ) / ratio);
-    vue = { x: (minX + maxX) / 2 - l / 2, z: (minZ + maxZ) / 2 - (l * ratio) / 2, l, h: l * ratio };
-    dessiner();
+    cadrer(minX, maxX, minZ, maxZ);
+    // Les noms des blocs peuvent dépasser du bloc : on élargit pour qu'ils restent lisibles en entier.
+    const bb = svg.clientWidth ? $('contenu').getBBox() : null;
+    if (bb && bb.width && (bb.x < minX || bb.x + bb.width > maxX || bb.y < minZ || bb.y + bb.height > maxZ)) {
+      cadrer(Math.min(minX, bb.x - 1), Math.max(maxX, bb.x + bb.width + 1), Math.min(minZ, bb.y - 1), Math.max(maxZ, bb.y + bb.height + 1));
+    }
   }
 
   function redimensionner(g, x, z, garderRapport) {
@@ -750,7 +792,8 @@
       memoriser();
       const tournee = p > l; // dessinée « debout » : étagère tournée
       const e = { cle: nouvelleCle('e'), id: null, bloc: b.cle, code: codeEtagereLibre(b.cle), x, z,
-        largeur: arrondi(tournee ? p : l), profondeur: arrondi(tournee ? l : p), hauteur: 2.4, niveaux: 4, tournee, articles: 0 };
+        largeur: arrondi(tournee ? p : l), profondeur: arrondi(tournee ? l : p), hauteur: 2.4, niveaux: 4, tournee, articles: 0,
+        par_niveau: [] };
       etat.etageres.push(e);
       selection = { type: 'etagere', cle: e.cle };
     }
@@ -762,6 +805,7 @@
   document.addEventListener('keydown', (ev) => {
     if (ev.target.closest('input, select, textarea')) return;
     const touche = ev.key.toLowerCase();
+    if ((ev.ctrlKey || ev.metaKey) && (touche === 'y' || (touche === 'z' && ev.shiftKey))) { ev.preventDefault(); retablir(); return; }
     if ((ev.ctrlKey || ev.metaKey) && touche === 'z') { ev.preventDefault(); annuler(); return; }
     if ((ev.ctrlKey || ev.metaKey) && touche === 's') { ev.preventDefault(); enregistrer(); return; }
     if ((ev.ctrlKey || ev.metaKey) && touche === 'd') { ev.preventDefault(); dupliquer(); return; }
@@ -793,6 +837,7 @@
   }
   document.querySelectorAll('[data-outil]').forEach((b) => b.addEventListener('click', () => choisirOutil(b.dataset.outil)));
   $('btn-annuler').onclick = annuler;
+  $('btn-retablir').onclick = retablir;
   $('btn-objets').onclick = (ev) => { ev.stopPropagation(); $('menu-objets').hidden = !$('menu-objets').hidden; };
   $('menu-objets').addEventListener('click', (ev) => { const b = ev.target.closest('[data-objet]'); if (b) choisirOutil(`objet:${b.dataset.objet}`); });
   document.addEventListener('click', (ev) => { if (!ev.target.closest('#menu-objets, #btn-objets')) $('menu-objets').hidden = true; });
@@ -802,9 +847,11 @@
   $('btn-ajuster').onclick = ajuster;
   $('btn-aimant').onclick = () => { aimant = !aimant; $('btn-aimant').classList.toggle('actif', aimant); };
 
-  function majBoutons() {
+  function majBoutons(change = false) {
+    modifie = change || JSON.stringify(etat) !== enregistre;
     $('btn-annuler').disabled = !historique.length;
-    $('btn-enregistrer').disabled = !modifie;
+    $('btn-retablir').disabled = !refaire.length;
+    $('btn-enregistrer').disabled = !modifie || envoi;
     $('etat-sauvegarde').textContent = modifie ? 'Modifications non enregistrées' : 'Plan enregistré';
     $('etat-sauvegarde').classList.toggle('non-enregistre', modifie);
   }
@@ -817,12 +864,21 @@
   }
 
   let minuteurMessage;
-  function message(texte, erreur = false) {
+  // garder : le message reste affiché jusqu'à ce qu'on le ferme (erreurs d'enregistrement).
+  function message(texte, erreur = false, garder = false) {
     const m = $('message-editeur');
     m.textContent = texte;
-    m.className = 'message-editeur visible' + (erreur ? ' erreur' : '');
+    m.className = 'message-editeur visible' + (erreur ? ' erreur' : '') + (garder ? ' garde' : '');
     clearTimeout(minuteurMessage);
-    minuteurMessage = setTimeout(() => { m.className = 'message-editeur'; }, erreur ? 6000 : 3000);
+    if (garder) {
+      const fermer = document.createElement('button');
+      fermer.type = 'button'; fermer.className = 'fermer'; fermer.textContent = '×';
+      fermer.title = 'Fermer'; fermer.setAttribute('aria-label', 'Fermer le message');
+      fermer.onclick = () => { m.className = 'message-editeur'; };
+      m.append(fermer);
+    } else {
+      minuteurMessage = setTimeout(() => { m.className = 'message-editeur'; }, erreur ? 6000 : 3000);
+    }
   }
 
   // ---------------------------------------------------------------- 2D / 3D
@@ -848,39 +904,60 @@
   }));
 
   // ---------------------------------------------------------------- enregistrement
+  let envoi = false; // enregistrement en cours
   async function enregistrer() {
-    if (!modifie) return;
-    const bouton = $('btn-enregistrer');
-    bouton.disabled = true;
+    if (!modifie || envoi) return;
+    envoi = true;
+    $('btn-enregistrer').disabled = true;
+    try { await envoyer(); } finally { envoi = false; majBoutons(); }
+  }
+  async function envoyer() {
     const donnees = {
       blocs: etat.blocs.map(({ cle, id, code, nom, couleur, x, z, largeur, profondeur }) => ({ cle, id, code, nom, couleur, x, z, largeur, profondeur })),
-      etageres: etat.etageres.map(({ id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee }) => ({ id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee })),
+      etageres: etat.etageres.map(({ cle, id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee }) => ({ cle, id, bloc, code, x, z, largeur, profondeur, hauteur, niveaux, tournee })),
       murs: etat.murs.map(({ id, x1, z1, x2, z2, epaisseur, hauteur, couleur }) => ({ id, x1, z1, x2, z2, epaisseur, hauteur, couleur })),
       elements: etat.elements.map(({ type, nom, x, z, largeur, profondeur, hauteur, rotation, couleur }) => ({ type, nom, x, z, largeur, profondeur, hauteur, rotation, couleur })),
     };
+    let rep, json = null;
     try {
-      const rep = await fetch(CFG.apiEnregistrer, {
+      rep = await fetch(CFG.apiEnregistrer, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CFG.csrf }, body: JSON.stringify(donnees),
       });
-      const json = await rep.json();
-      if (!rep.ok) throw new Error((json.erreurs || ['Erreur inconnue']).join('\n'));
-      etat = depuisServeur(json); // les nouveaux objets reçoivent leur numéro définitif
-      historique = [];
-      modifie = false;
-      selection = null;
-      toutRedessiner();
-      message('Plan enregistré. La recherche 3D utilise maintenant ce plan.');
+      json = await rep.json();
     } catch (e) {
-      message(e.message, true);
-      majBoutons();
+      message(rep ? `Le plan n'a pas pu être enregistré (erreur ${rep.status}). Réessayez.`
+        : 'Le logiciel ne répond pas : le plan n\'a pas été enregistré. Réessayez.', true, true);
+      return;
     }
+    if (!rep.ok) {
+      // Montre le premier bloc ou la première étagère en cause.
+      const cle = (json.cibles || []).find((c) => etat.etageres.some((t) => t.cle === c) || etat.blocs.some((b) => b.cle === c));
+      if (cle) {
+        selection = { type: etat.blocs.some((b) => b.cle === cle) ? 'bloc' : 'etagere', cle };
+        if (vue3dActive) document.querySelector('[data-onglet="2d"]').click();
+        choisirOutil('selection');
+        toutRedessiner();
+      }
+      message((json.erreurs || ['Erreur inconnue.']).join('\n'), true, true);
+      return;
+    }
+    etat = depuisServeur(json); // les nouveaux objets reçoivent leur numéro définitif
+    enregistre = JSON.stringify(etat);
+    historique = [];
+    refaire = [];
+    selection = null;
+    toutRedessiner();
+    message('Plan enregistré. La recherche 3D utilise maintenant ce plan.');
   }
   $('btn-enregistrer').onclick = enregistrer;
-  window.addEventListener('beforeunload', (ev) => { if (modifie) { ev.preventDefault(); ev.returnValue = ''; } });
+  window.addEventListener('beforeunload', (ev) => {
+    if (JSON.stringify(etat) !== enregistre) { ev.preventDefault(); ev.returnValue = ''; }
+  });
 
   // ---------------------------------------------------------------- démarrage
   function ajusterSiVide() { if (!svg.dataset.ajuste) { ajuster(); svg.dataset.ajuste = '1'; } }
   etat = depuisServeur(JSON.parse($('plan-initial').textContent));
+  enregistre = JSON.stringify(etat);
   new ResizeObserver(() => { if (svg.clientWidth) { vue.h = vue.l * (svg.clientHeight / svg.clientWidth); dessiner(); } }).observe(svg);
   choisirOutil('selection');
   ajuster();

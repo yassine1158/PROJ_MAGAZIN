@@ -192,6 +192,8 @@ class Article(models.Model):
     stock = models.DecimalField('stock actuel', default=0, editable=False, **QTE)
     prix_moyen = models.DecimalField('prix moyen pondéré', default=0, editable=False, **PRIX)
     actif = models.BooleanField(default=True)
+    # Pour imprimer les étiquettes des nouveaux articles. Vide pour un article ancien jamais mouvementé.
+    cree_le = models.DateTimeField('créé le', auto_now_add=True, null=True)
 
     objects = ArticleQuerySet.as_manager()
 
@@ -244,6 +246,10 @@ class Bon(models.Model):
     valide_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
                                    editable=False, related_name='+', verbose_name='validé par')
     date_validation = models.DateTimeField(null=True, editable=False)
+    annule_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True,
+                                   editable=False, related_name='+', verbose_name='annulé par')
+    date_annulation = models.DateTimeField("date d'annulation", null=True, editable=False)
+    motif_annulation = models.CharField("motif de l'annulation", max_length=255, blank=True, editable=False)
     # Jeton du formulaire qui a créé le bon : un deuxième envoi du même formulaire ne crée pas un second bon.
     jeton = models.CharField(max_length=32, null=True, blank=True, unique=True, editable=False)
 
@@ -330,21 +336,64 @@ class LigneSortie(models.Model):
         return (self.quantite or 0) * (self.prix_unitaire or 0)
 
 
+class BonRetour(Bon):
+    """Marchandise non utilisée rapportée d'un chantier : le stock remonte, le prix moyen ne change pas."""
+    PREFIXE = 'BR'
+
+    chantier = models.ForeignKey(Chantier, on_delete=models.PROTECT)
+    engin = models.ForeignKey(Engin, on_delete=models.PROTECT, null=True, blank=True,
+                              help_text="Facultatif : engin ou camion d'où revient la marchandise.")
+    rapporte_par = models.CharField('rapporté par', max_length=150)
+    sortie = models.ForeignKey(BonSortie, on_delete=models.SET_NULL, null=True, blank=True, related_name='retours',
+                               verbose_name="bon de sortie d'origine")
+
+    class Meta(Bon.Meta):
+        verbose_name = 'bon de retour'
+        verbose_name_plural = 'bons de retour'
+
+    def total(self):
+        return sum((l.montant for l in self.lignes.all()), Decimal('0'))
+
+
+class LigneRetour(models.Model):
+    bon = models.ForeignKey(BonRetour, on_delete=models.CASCADE, related_name='lignes')
+    article = models.ForeignKey(Article, on_delete=models.PROTECT)
+    quantite = models.DecimalField('quantité', validators=STRICT_POSITIF, **QTE)
+    # Prix moyen de l'article figé au moment de la validation.
+    prix_unitaire = models.DecimalField('prix unitaire', default=0, editable=False, **PRIX)
+
+    class Meta:
+        verbose_name = 'ligne'
+
+    def __str__(self):
+        return f'{self.article.code} × {self.quantite}'
+
+    @property
+    def montant(self):
+        return (self.quantite or 0) * (self.prix_unitaire or 0)
+
+
 class Inventaire(Bon):
     PREFIXE = 'INV'
+
+    # Ce qui est compté (« Tout le magasin », « Bloc A – Pièces »…) ; vide pour la correction d'un seul article.
+    perimetre = models.CharField('périmètre', max_length=150, blank=True, editable=False)
 
     class Meta(Bon.Meta):
         verbose_name = 'inventaire'
 
     def total(self):
-        return sum((l.ecart * l.article.prix_moyen for l in self.lignes.all()), Decimal('0'))
+        return sum((l.ecart * l.article.prix_moyen for l in self.lignes.all() if l.ecart is not None), Decimal('0'))
 
 
 class LigneInventaire(models.Model):
     bon = models.ForeignKey(Inventaire, on_delete=models.CASCADE, related_name='lignes')
     article = models.ForeignKey(Article, on_delete=models.PROTECT)
-    stock_compte = models.DecimalField('stock compté', validators=POSITIF, **QTE)
-    # Stock du logiciel figé au moment de la validation.
+    # Vide = pas encore compté (la ligne est ignorée à la validation).
+    stock_compte = models.DecimalField('stock compté', null=True, blank=True, validators=POSITIF, **QTE)
+    # Moment où la quantité comptée a été saisie : les mouvements faits après sont repris à la validation.
+    compte_le = models.DateTimeField('compté le', null=True, blank=True, editable=False)
+    # Stock du logiciel au moment du comptage, calculé à la validation (écart = compté − théorique).
     stock_theorique = models.DecimalField('stock théorique', null=True, editable=False, **QTE)
 
     class Meta:
@@ -354,12 +403,19 @@ class LigneInventaire(models.Model):
         ]
 
     def __str__(self):
-        return f'{self.article.code} : {self.stock_compte}'
+        return f'{self.article.code} : {"non compté" if self.stock_compte is None else self.stock_compte}'
+
+    @property
+    def ignoree(self):
+        """Ligne validée sans effet sur le stock : non comptée, ou recomptée depuis par un autre inventaire."""
+        return self.bon.statut == Bon.VALIDE and self.stock_theorique is None
 
     @property
     def ecart(self):
+        if self.stock_compte is None or self.ignoree:
+            return None
         theorique = self.stock_theorique if self.stock_theorique is not None else self.article.stock
-        return (self.stock_compte or 0) - theorique
+        return self.stock_compte - theorique
 
 
 # =========================================================
@@ -368,9 +424,11 @@ class LigneInventaire(models.Model):
 
 class MouvementStock(models.Model):
     ENTREE, SORTIE, INVENTAIRE, ANNULATION = 'ENTREE', 'SORTIE', 'INVENTAIRE', 'ANNULATION'
+    RETOUR = 'RETOUR'
     TYPES = [
         (ENTREE, 'Entrée'),
         (SORTIE, 'Sortie'),
+        (RETOUR, 'Retour de chantier'),
         (INVENTAIRE, "Ajustement d'inventaire"),
         (ANNULATION, 'Annulation'),
     ]
@@ -381,6 +439,9 @@ class MouvementStock(models.Model):
     quantite = models.DecimalField('quantité', help_text='Positive en entrée, négative en sortie.', **QTE)
     stock_apres = models.DecimalField('stock après', **QTE)
     prix_unitaire = models.DecimalField('prix unitaire', default=0, **PRIX)
+    # Prix moyen de l'article juste après le mouvement (valeur du stock à une date passée).
+    # Vide pour les mouvements enregistrés avant son ajout, quand l'historique n'a pas permis de le retrouver.
+    prix_moyen_apres = models.DecimalField('prix moyen après', null=True, blank=True, editable=False, **PRIX)
     reference = models.CharField('bon', max_length=30)
     chantier = models.ForeignKey(Chantier, on_delete=models.PROTECT, null=True, blank=True)
     engin = models.ForeignKey(Engin, on_delete=models.PROTECT, null=True, blank=True)
@@ -413,6 +474,7 @@ class Parametres(models.Model):
                             help_text='N° du registre du commerce, imprimé en haut des bons.')
     ncc = models.CharField('N° compte contribuable (NCC)', max_length=30, blank=True)
     masquer_prix_sortie = models.BooleanField('Ne pas imprimer les prix sur les bons de sortie', default=False)
+    premiers_pas_masques = models.BooleanField('guide « Bien démarrer » masqué', default=False)
     debut_essai = models.DateField("début de l'essai", null=True, blank=True)
     cle_licence = models.TextField("clé d'activation", blank=True)
 

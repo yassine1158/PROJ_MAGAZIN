@@ -10,6 +10,41 @@
     </div>
   </div>
 
+  {% if premiers_pas %}
+  <section class="carte carte-pad premiers-pas" aria-labelledby="titre-premiers-pas">
+    <div class="pp-tete">
+      <div>
+        <h2 id="titre-premiers-pas">Bien démarrer · {{ premiers_pas.faites }}/{{ premiers_pas.total }}</h2>
+        <p class="muted">Quelques étapes pour préparer votre magasin. Elles se cochent toutes seules.</p>
+      </div>
+      <form method="post" action="{% url 'stock:premiers_pas' %}">{% csrf_token %}<button class="btn btn-discret" title="Masquer ce guide (il reste dans Réglages › Ma société)">Masquer</button></form>
+    </div>
+    <div class="barre" role="progressbar" aria-valuenow="{{ premiers_pas.faites }}" aria-valuemin="0" aria-valuemax="{{ premiers_pas.total }}"><span style="width:{{ premiers_pas.pourcent }}%"></span></div>
+    {% if premiers_pas.exemple %}<p class="pp-note">{% icone 'alerte' %} Vous êtes sur le magasin d'exemple : plan, articles et stock de départ seront cochés avec vos vraies données, une fois l'exemple effacé.</p>{% endif %}
+    <ol class="pp-etapes">
+      {% for e in premiers_pas.etapes %}
+      <li class="{% if e.fait %}fait{% elif e.suivante %}suivante{% endif %}">
+        <span class="pp-rond">{% if e.fait %}{% icone 'valider' %}{% else %}{{ forloop.counter }}{% endif %}</span>
+        <div class="pp-texte"><b>{{ e.titre }}</b><span>{% if e.fait %}Fait.{% else %}{{ e.texte }}{% endif %}</span></div>
+        <div class="pp-boutons">
+          {% if e.fait %}<a href="{{ e.revoir.1 }}">{{ e.revoir.0 }}</a>
+          {% else %}{% for libelle, lien in e.liens %}<a class="btn{% if e.suivante and forloop.first %} btn-vert{% endif %}" href="{{ lien }}">{{ libelle }}</a>{% endfor %}{% endif %}
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    {% if magasin_vide %}{% include 'stock/_exemple.html' %}{% endif %}
+  </section>
+  {% elif magasin_vide %}
+  <section class="carte carte-pad premiers-pas">{% include 'stock/_exemple.html' %}</section>
+  {% endif %}
+  {% if not nb_articles and not request.user.is_staff %}
+  <section class="carte carte-pad magasin-en-preparation">
+    <h2>Votre responsable prépare le magasin</h2>
+    <p class="muted">Les articles apparaîtront ici dès qu'ils seront enregistrés. Vous pouvez déjà ajouter un article reçu avec « Nouvel article ».</p>
+  </section>
+  {% endif %}
+
   <form class="accueil-recherche" action="{% url 'stock:recherche' %}" method="get">
     <input type="search" name="q" placeholder="Où est… ? Tapez un article (ex. : filtre à huile, ciment, gants)" autofocus>
     <button class="btn btn-vert btn-grand" type="submit">{% icone 'recherche' %} Trouver</button>
@@ -34,12 +69,14 @@
     </a>
   </div>
 
+  {% if nb_articles %}
   <div class="kpis">
     <a class="carte kpi" href="{% url 'stock:articles' %}" style="color:inherit;text-decoration:none"><div class="label">Articles</div><div class="valeur">{{ nb_articles }}</div></a>
     <a class="carte kpi" href="{% url 'stock:articles' %}?filtre=alerte" style="color:inherit;text-decoration:none"><div class="label">À commander</div><div class="valeur" style="color:{% if NB_ALERTES %}var(--orange){% else %}var(--primaire){% endif %}">{{ NB_ALERTES }}</div></a>
-    <div class="carte kpi"><div class="label">Valeur du stock</div><div class="valeur">{{ valeur_stock }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
-    <div class="carte kpi"><div class="label">Sorties ce mois</div><div class="valeur">{{ sorties_mois }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></div>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:etat_stock_date' %}"><div class="label">Valeur du stock</div><div class="valeur">{{ valeur_stock }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:consommation' %}"><div class="label">Sorties ce mois</div><div class="valeur">{{ sorties_mois }} <small class="muted" style="font-size:14px">{{ DEVISE }}</small></div></a>
   </div>
+  {% endif %}
 
   <div class="grid-2">
     <section class="carte carte-pad">
@@ -53,7 +90,8 @@
         </tr>
         {% endfor %}
       </table>
-      {% else %}<p class="vide">Rien à commander. 👍</p>{% endif %}
+      {% elif nb_articles %}<p class="vide">Rien à commander. 👍</p>
+      {% else %}<p class="vide">Aucun article encore.{% if request.user.is_staff %} <a href="{% url 'stock:import_articles' %}">Importer depuis Excel</a> ou{% endif %} <a href="{% url 'stock:article_nouveau' %}">ajouter le premier article</a>.</p>{% endif %}
     </section>
 
     <section class="carte carte-pad">
@@ -63,15 +101,15 @@
         {% for b, t in derniers %}
         <tr>
           <td>
-            <a href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a>
-            <div class="muted petit">{% if t == 'entree' %}Entrée · {{ b.fournisseur|default:"sans fournisseur" }}{% else %}Sortie · {{ b.chantier }}{% endif %}</div>
+            <a class="sans-coupure" href="{% url 'stock:bon_detail' t b.pk %}"><b>{{ b.numero }}</b></a>
+            <div class="muted petit">{% if t == 'entree' %}Entrée · {% if b.fournisseur %}{{ b.fournisseur }}{% else %}{{ b.observation|truncatechars:40|default:"sans fournisseur" }}{% endif %}{% else %}Sortie · {{ b.chantier }}{% endif %}</div>
           </td>
           <td class="muted petit">{{ b.date|date:"d/m H:i" }}</td>
           <td class="num">{% if b.statut == 'ANNULE' %}<span class="badge badge-danger">Annulé</span>{% elif t == 'entree' %}<span class="badge badge-ok">Entrée</span>{% else %}<span class="badge badge-warn">Sortie</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </table>
-      {% else %}<p class="vide">Aucun bon pour l'instant.</p>{% endif %}
+      {% else %}<p class="vide">Aucun bon pour l'instant. Chaque entrée et chaque sortie enregistrée apparaîtra ici.</p>{% endif %}
     </section>
   </div>
 </main>

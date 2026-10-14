@@ -1,0 +1,82 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Valider l'inventaire {{ bon.numero }}{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div>
+      <h1>Valider l'inventaire</h1>
+      <p>{{ bon.perimetre|default:"Inventaire" }} · {{ bon.numero }} · commencé le {{ bon.date|date:"d/m/Y" }}</p>
+    </div>
+    <div class="actions-bon">
+      <a class="btn" href="{% url 'stock:inventaire' bon.pk %}">{% icone 'inventaire' %} Retour au comptage</a>
+    </div>
+  </div>
+
+  {% if refus %}
+  <div class="message message-error">{% icone 'alerte' %}<div>{% for e in refus %}{{ e }}<br>{% endfor %}</div></div>
+  {% endif %}
+  {% if erreurs %}
+  <div class="message message-error">{% icone 'alerte' %}<div><b>Validation impossible pour le moment :</b><br>{% for e in erreurs %}{{ e }}<br>{% endfor %}</div></div>
+  {% endif %}
+
+  <div class="kpis">
+    <div class="carte kpi"><div class="label">Articles comptés</div><div class="valeur">{{ nb_comptees }} <span class="muted petit">/ {{ lignes|length }}</span></div></div>
+    <div class="carte kpi"><div class="label">Articles avec un écart</div><div class="valeur">{{ ecarts|length }}</div></div>
+    <div class="carte kpi"><div class="label">Trouvé en plus / en moins ({{ DEVISE }})</div><div class="valeur petite-valeur"><span class="{% if plus %}ecart-plus{% else %}muted{% endif %}">+{{ plus|montant }}</span><br><span class="{% if moins %}ecart-moins{% else %}muted{% endif %}">{{ moins|montant }}</span></div></div>
+    <div class="carte kpi"><div class="label">Valeur nette des écarts ({{ DEVISE }})</div><div class="valeur{% if valeur_nette < 0 %} ecart-moins{% elif valeur_nette > 0 %} ecart-plus{% endif %}">{% if valeur_nette > 0 %}+{% endif %}{{ valeur_nette|montant }}</div></div>
+  </div>
+
+  <section class="carte table-wrap" style="margin-bottom:20px">
+    <div class="carte-pad titre-carte"><h2>Écarts qui seront corrigés</h2>
+      <p class="muted petit">Écart = quantité comptée − stock du logiciel au moment du comptage. Valeur au prix moyen actuel.</p></div>
+    <table class="data table-ecarts">
+      <thead><tr><th>Article</th><th class="inv-empl">Emplacement</th><th class="num">Logiciel</th><th class="num">Compté</th><th class="num">Écart</th><th class="num">Valeur ({{ DEVISE }})</th></tr></thead>
+      <tbody>
+      {% for e in ecarts %}
+        <tr>
+          <td class="te-art"><b>{{ e.article.designation }}</b><div class="muted petit">{{ e.article.code }}</div></td>
+          <td class="inv-empl">{{ e.article.emplacement|default:"—" }}</td>
+          <td class="num te-log"><span class="etiq-tel">Logiciel</span>{{ e.theorique|qte }}</td>
+          <td class="num te-cpt"><span class="etiq-tel">Compté</span>{{ e.ligne.stock_compte|qte }} {{ e.article.unite }}</td>
+          <td class="num te-eca"><span class="etiq-tel">Écart</span><b class="{% if e.ecart < 0 %}ecart-moins{% else %}ecart-plus{% endif %}">{% if e.ecart > 0 %}+{% endif %}{{ e.ecart|qte }}</b></td>
+          <td class="num te-val"><span class="etiq-tel">Valeur</span>{% if e.valeur > 0 %}+{% endif %}{{ e.valeur|montant }}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="vide">Aucun écart : {% if nb_comptees %}le stock du logiciel correspond au comptage.{% else %}aucun article n'est encore compté.{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+      {% if ecarts %}
+      <tfoot><tr class="te-total"><td colspan="5" class="num"><b>Total</b></td><td class="num"><b>{% if valeur_nette > 0 %}+{% endif %}{{ valeur_nette|montant }}</b></td></tr></tfoot>
+      {% endif %}
+    </table>
+  </section>
+
+  {% if justes %}<p class="muted">{{ justes }} article{{ justes|pluralize }} compté{{ justes|pluralize }} sans écart : rien ne change pour {{ justes|pluralize:"lui,eux" }}.</p>{% endif %}
+
+  {% if depassees %}
+  <div class="message message-info">{% icone 'alerte' %}<div>
+    <b>{{ depassees|length }} article{{ depassees|pluralize }} recompté{{ depassees|pluralize }} depuis par un autre inventaire</b> : ce comptage-ci est ignoré pour {{ depassees|pluralize:"lui,eux" }}.
+    <div class="petit">{% for l in depassees %}{{ l.article.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  </div></div>
+  {% endif %}
+
+  {% if non_comptees %}
+  <details class="carte carte-pad non-comptes"{% if non_comptees|length <= 10 %} open{% endif %}>
+    <summary><b>{{ non_comptees|length }} article{{ non_comptees|pluralize }} non compté{{ non_comptees|pluralize }}</b> : {{ non_comptees|pluralize:"il est ignoré,ils sont ignorés" }}, {{ non_comptees|pluralize:"son,leur" }} stock ne change pas.</summary>
+    <ul>{% for l in non_comptees %}<li>{{ l.article.designation }} <span class="muted petit">{{ l.article.code }}{% if l.article.emplacement %} · {{ l.article.emplacement }}{% endif %}</span></li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+
+  {% if not erreurs and nb_comptees %}
+  <form method="post" class="boutons-bas" onsubmit="return confirm('Valider l\'inventaire ? Le stock prendra les quantités comptées. Cette action ne peut pas être annulée.')">
+    {% csrf_token %}
+    <input type="hidden" name="empreinte" value="{{ empreinte }}">
+    <a class="btn" href="{% url 'stock:inventaire' bon.pk %}">Continuer le comptage</a>
+    <button class="btn btn-vert btn-grand">{% icone 'valider' %} Valider : mettre le stock à jour</button>
+  </form>
+  {% else %}
+  <div class="boutons-bas"><a class="btn btn-vert" href="{% url 'stock:inventaire' bon.pk %}">{% icone 'inventaire' %} Retour au comptage</a></div>
+  {% endif %}
+</main>
+{% endblock %}

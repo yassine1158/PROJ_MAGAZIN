@@ -1,0 +1,6 @@
+{% load magasin %}{% url 'stock:exemple_effacer' as lien_effacer %}
+<div class="pp-exemple">
+  <div><b>Envie de voir le logiciel en action d'abord ?</b>
+    <span class="muted">Un magasin d'exemple de chantier à Abidjan : plan en 3D, une vingtaine d'articles, des entrées et des sorties.{% if lien_effacer %} Vous pourrez l'effacer ensuite pour commencer avec vos vrais articles.{% endif %}</span></div>
+  <form method="post" action="{% url 'stock:exemple_installer' %}">{% csrf_token %}<button class="btn">{% icone 'cube' %} Essayer avec un magasin d'exemple</button></form>
+</div>

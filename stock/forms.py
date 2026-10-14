@@ -1,6 +1,7 @@
 import io
 import re
 import unicodedata
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from django import forms
 from django.contrib.auth import password_validation
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
+from django.db.models import Max
+from django.utils import timezone
 
 from .models import Article, Bloc, Categorie, Chantier, Engin, Etagere, Fournisseur, Parametres
 from .utils import nombre, quantite
@@ -46,6 +49,33 @@ def nombre_saisi(texte, decimales=3, maxi=QTE_MAXI, code_barre=True):
 
 def prix_saisi(texte):
     return nombre_saisi(texte, decimales=2, maxi=PRIX_MAXI, code_barre=False)
+
+
+JOURS_RETOUR_MAGASINIER = 7
+DATE_MINI = date(2000, 1, 1)
+
+
+def date_du_bon(texte, responsable=False):
+    """Date choisie pour un bon d'entrée ou de sortie → date et heure du bon (le jour choisi, à l'heure
+    actuelle). Vide : maintenant. Refuse une date future ; un magasinier ne remonte pas à plus de 7 jours."""
+    maintenant = timezone.localtime()
+    texte = (texte or '').strip()
+    if not texte:
+        return maintenant
+    try:
+        jour = date.fromisoformat(texte)
+    except ValueError:
+        raise forms.ValidationError('Date : choisissez une date dans le calendrier.')
+    if jour > maintenant.date():
+        raise forms.ValidationError('Date : un bon ne peut pas être daté dans le futur.')
+    if jour < DATE_MINI:
+        raise forms.ValidationError('Date : cette date est trop ancienne.')
+    if not responsable and jour < maintenant.date() - timedelta(days=JOURS_RETOUR_MAGASINIER):
+        raise forms.ValidationError(f'Date : vous pouvez remonter de {JOURS_RETOUR_MAGASINIER} jours au plus. '
+                                    'Pour une date plus ancienne, demandez à un responsable.')
+    if jour == maintenant.date():
+        return maintenant
+    return timezone.make_aware(datetime.combine(jour, maintenant.time()))
 
 
 def decimal_saisi(texte):
@@ -202,6 +232,54 @@ class ArticleForm(forms.ModelForm):
         return super().save(commit)
 
 
+class InventaireForm(forms.Form):
+    """Nouvel inventaire : ce que l'on va compter (tout le magasin, un bloc, une étagère ou une catégorie)."""
+    PERIMETRES = [('tout', 'Tout le magasin'), ('bloc', 'Un bloc'), ('etagere', 'Une étagère'),
+                  ('categorie', 'Une catégorie')]
+    A_CHOISIR = {'bloc': 'Choisissez le bloc à compter.', 'etagere': "Choisissez l'étagère à compter.",
+                 'categorie': 'Choisissez la catégorie à compter.'}
+
+    perimetre = forms.ChoiceField(choices=PERIMETRES, initial='tout', error_messages={
+        'required': 'Choisissez ce que vous allez compter.', 'invalid_choice': 'Choisissez ce que vous allez compter.'})
+    bloc = forms.ModelChoiceField(Bloc.objects.all(), required=False,
+                                  error_messages={'invalid_choice': "Ce bloc n'existe plus : rechargez la page."})
+    etagere = forms.ModelChoiceField(Etagere.objects.select_related('bloc'), required=False,
+                                     error_messages={'invalid_choice': "Cette étagère n'existe plus : rechargez la page."})
+    categorie = forms.ModelChoiceField(Categorie.objects.all(), required=False,
+                                       error_messages={'invalid_choice': "Cette catégorie n'existe plus : rechargez la page."})
+    observation = forms.CharField(label='Remarque', max_length=255, required=False)
+
+    def clean(self):
+        donnees = super().clean()
+        choix = donnees.get('perimetre')
+        for autre in self.A_CHOISIR:
+            if autre != choix:
+                self.errors.pop(autre, None)  # liste non choisie : sa valeur ne compte pas
+        if choix in self.A_CHOISIR and not donnees.get(choix) and choix not in self.errors:
+            self.add_error(choix, self.A_CHOISIR[choix])
+        if choix and not self.errors and not self.articles().exists():
+            raise forms.ValidationError("Il n'y a aucun article actif à compter ici : choisissez un autre endroit.")
+        return donnees
+
+    def articles(self):
+        choix = self.cleaned_data['perimetre']
+        articles = Article.objects.filter(actif=True)
+        filtres = {'bloc': 'etagere__bloc', 'etagere': 'etagere', 'categorie': 'categorie'}
+        return articles.filter(**{filtres[choix]: self.cleaned_data[choix]}) if choix in filtres else articles
+
+    def libelle(self):
+        """Ce qui est compté, en clair : « Bloc A – Pièces », « Bloc A › Étagère R1 »…"""
+        choix = self.cleaned_data['perimetre']
+        objet = self.cleaned_data.get(choix)
+        if choix == 'bloc':
+            return str(objet)[:150]
+        if choix == 'etagere':
+            return f'Bloc {objet.bloc.code} › Étagère {objet.code}'[:150]
+        if choix == 'categorie':
+            return f'Catégorie {objet.nom}'[:150]
+        return 'Tout le magasin'
+
+
 class ParametresForm(forms.ModelForm):
     class Meta:
         model = Parametres
@@ -254,6 +332,24 @@ class EtagereForm(forms.ModelForm):
     def __init__(self, *args, bloc=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.bloc = bloc or self.instance.bloc
+        champ = self.fields['nb_niveaux']
+        champ.widget.attrs.update(min=1, max=30)
+        if self.instance.pk:
+            haut = self.instance.articles.aggregate(m=Max('niveau'))['m']
+            if haut:
+                champ.help_text = f'Des articles sont rangés jusqu\'au niveau {haut}.'
+
+    def clean_nb_niveaux(self):
+        niveaux = self.cleaned_data['nb_niveaux']
+        if not 1 <= niveaux <= 30:
+            raise forms.ValidationError('Le nombre de niveaux doit être entre 1 et 30.')
+        if self.instance.pk and niveaux < self.instance.nb_niveaux:
+            trop_hauts = self.instance.articles.filter(niveau__gt=niveaux).count()
+            if trop_hauts:
+                raise forms.ValidationError(
+                    f'Étagère {self.instance.code} : {trop_hauts} article(s) au niveau {niveaux + 1} ou plus. '
+                    'Déplacez-les avant de réduire les niveaux.')
+        return niveaux
 
     def clean_code(self):
         code = self.cleaned_data['code'].strip()

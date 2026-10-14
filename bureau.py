@@ -8,6 +8,7 @@ Les données sont gardées dans %LOCALAPPDATA%\\<nom du produit> (base, photos, 
     python bureau.py --test    vérifie que tout démarre, sans ouvrir de fenêtre (utilisé à la construction)
 """
 import html
+import io
 import json
 import os
 import shutil
@@ -18,11 +19,13 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from config import produit
 
 ANCIENS_DOSSIERS = ['Magasin SI BETON']  # versions précédentes : les données sont reprises
+WEBVIEW2 = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703'  # programme d'installation de Microsoft
 _verrou = None  # Windows : marque « logiciel déjà ouvert » (voir instance_unique)
 
 
@@ -232,12 +235,25 @@ def verifier(url, dossier):
     client = Client()
     client.force_login(testeur)
     for chemin in ['/', '/entree/', '/sortie/', '/articles/', '/articles/nouveau/', '/bons/', '/recherche/',
-                   '/recherche/?q=filtre', '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
+                   '/rapports/mouvements/', '/rapports/etat-stock/', '/retour/',
+                   f'/articles/{Article.objects.first().pk}/historique/', '/articles/?filtre=alerte&q=fil', '/bons/?q=fil&du=2026-01-01',
+                   '/inventaires/', '/inventaires/nouveau/',
+                   '/tableau-de-bord/', '/consommation/', '/reglages/ia/', '/reglages/societe/',
+                   '/articles/importer/',
+                   '/etiquettes/', '/etiquettes/?quoi=etageres',
                    '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/activation/', '/admin/',
-                   '/reglages/sauvegarde/', '/reglages/exemple/effacer/', '/reglages/telephones/']:
+                   '/reglages/sauvegarde/', '/reglages/exemple/effacer/', '/reglages/telephones/', '/aide/']:
         code = client.get(chemin).status_code
         assert code == 200, f'{chemin} → {code}'
         lignes.append(f'OK écran {chemin}')
+    page = client.get('/page-qui-n-existe-pas/')
+    assert page.status_code == 404 and 'Page introuvable' in page.content.decode(), 'page 404 en français absente'
+    lignes.append('OK page 404')
+    from stock import assistance
+
+    nom, rapport = assistance.rapport()
+    assert 'informations.txt' in zipfile.ZipFile(io.BytesIO(rapport)).namelist(), 'rapport pour l\'assistance'
+    lignes.append(f'OK rapport pour l\'assistance ({nom}, {len(rapport)} octets)')
     import ssl
 
     from stock import mises_a_jour
@@ -248,8 +264,8 @@ def verifier(url, dossier):
                                    'notes': 'Essai'}), encoding='utf-8')
     try:
         page = client.get('/').content.decode()
-        assert 'Nouvelle version 999.0.0' in page and 'Vérifier les mises à jour' in client.get(
-            '/reglages/sauvegarde/').content.decode(), 'carte de mise à jour absente'
+        assert 'Nouvelle version 999.0.0' in page and 'Télécharger la version 999.0.0' in client.get(
+            '/aide/').content.decode(), 'carte de mise à jour absente'
     finally:
         if ancien is None:
             fichier.unlink()
@@ -289,6 +305,34 @@ def signaler(dossier, message):
         print(message, file=sys.stderr)
 
 
+def contact_assistance():
+    """« WhatsApp : +225 07 … · E-mail : … » d'après config/produit.py (vide si rien n'est renseigné)."""
+    try:
+        from stock.assistance import contacts
+
+        return ' · '.join(f"{c['nom']} : {c['texte']}" for c in contacts())
+    except Exception:
+        return ''
+
+
+def proposer_webview2():
+    """WebView2 absent : propose d'ouvrir la page de téléchargement de Microsoft dans le navigateur."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        import webbrowser
+
+        reponse = ctypes.windll.user32.MessageBoxW(
+            None, "La fenêtre du logiciel ne peut pas s'ouvrir : il manque « Microsoft Edge WebView2 Runtime » "
+                  '(gratuit, de Microsoft).\n\nOuvrir la page de téléchargement de WebView2 ?\n\n'
+                  'Installez-le, puis relancez le logiciel.', produit.NOM, 0x04 | 0x10)  # Oui/Non, erreur
+        if reponse == 6:  # Oui
+            webbrowser.open(WEBVIEW2)
+    except Exception:
+        pass
+
+
 def ecran_chargement(message='Démarrage…', erreur=False):
     couleur = '#dc2626' if erreur else produit.COULEUR
     rond = '' if erreur else '<div class="rond"></div>'
@@ -318,10 +362,12 @@ def main():
 
     import webview
 
-    try:
-        webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = True  # liens target=_blank (« Télécharger ») : navigateur
-    except Exception:
-        pass
+    for reglage in ('OPEN_EXTERNAL_LINKS_IN_BROWSER',  # liens target=_blank (« Télécharger ») : navigateur
+                    'ALLOW_DOWNLOADS'):  # pièce jointe qui ne passerait pas par livrer() : enregistrée quand même
+        try:
+            webview.settings[reglage] = True
+        except Exception:
+            pass
     fenetre = webview.create_window(produit.NOM, html=ecran_chargement(), width=1400, height=900,
                                     min_size=(1000, 650), maximized=True, text_select=True, zoomable=True)
     etat = {}
@@ -340,9 +386,11 @@ def main():
         except Exception as e:
             signaler(dossier, traceback.format_exc())
             cause = f'{e}\n\n' if isinstance(e, ErreurDemarrage) else ''
+            contact = contact_assistance()
             fenetre.load_html(ecran_chargement(
                 f"Le logiciel n'a pas pu démarrer.\n{cause}Détails enregistrés dans :\n"
-                f"{dossier / 'erreur-demarrage.txt'}", erreur=True))
+                f"{dossier / 'erreur-demarrage.txt'}" + (f'\n\nAssistance : {contact}' if contact else ''),
+                erreur=True))
             return
         threading.Thread(target=sauvegarde_de_fond, daemon=True).start()
         threading.Thread(target=mises_a_jour_de_fond, daemon=True).start()
@@ -353,13 +401,8 @@ def main():
                       storage_path=str(dossier / 'fenetre'), icon=str(icone) if icone.exists() else None)
     except Exception:
         signaler(dossier, "La fenêtre ne peut pas s'ouvrir. Installez « Microsoft Edge WebView2 Runtime » (gratuit) : "
-                          'https://go.microsoft.com/fwlink/p/?LinkId=2124703 puis relancez le logiciel.\n\n'
-                 + traceback.format_exc())
-        if sys.platform == 'win32':
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                None, "La fenêtre ne peut pas s'ouvrir.\n\nInstallez « Microsoft Edge WebView2 Runtime » (gratuit, "
-                      'site de Microsoft) puis relancez le logiciel.', produit.NOM, 0x10)
+                          f'{WEBVIEW2} puis relancez le logiciel.\n\n' + traceback.format_exc())
+        proposer_webview2()
         sys.exit(1)
     if 'serveur' in etat:
         try:

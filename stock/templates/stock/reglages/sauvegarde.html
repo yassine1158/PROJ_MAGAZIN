@@ -3,7 +3,6 @@
 {% block titre %}Sauvegarde{% endblock %}
 {% block contenu %}
 <main class="page page-sauvegarde" style="max-width:1080px">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div><h1>Sauvegarde</h1><p>Copies de vos données (articles, bons, plan, photos) pour ne rien perdre en cas de panne, de vol ou de changement d'ordinateur.</p></div>
     <form method="post" action="{% url 'stock:sauvegarde_nouvelle' %}">{% csrf_token %}
@@ -85,43 +84,6 @@
       <p class="vide">Aucune sauvegarde pour l'instant. Cliquez sur « Sauvegarder maintenant ».</p>
     {% endif %}
   </section>
-
-  {% if version %}
-  <section class="carte carte-pad version-logiciel" id="version">
-    <div class="ligne-version">
-      <div>
-        <h2>Version du logiciel</h2>
-        <p>Version installée : <b>{{ PRODUIT }} {{ PRODUIT_VERSION }}</b>
-          {% if version.disponible %}<span class="badge badge-warn">Nouvelle version {{ version.disponible.version }} disponible</span>
-          {% elif version.verifie_le %}<span class="badge badge-ok">À jour</span>{% endif %}</p>
-        <p class="muted petit">{% if version.verifie_le %}Dernière vérification : le {{ version.verifie_le|date:"d/m/Y" }} à {{ version.verifie_le|date:"H:i" }}. {% endif %}Le logiciel vérifie lui-même une fois par jour, quand l'ordinateur est connecté à internet.</p>
-      </div>
-      <div class="actions-version">
-        {% if version.disponible and BUREAU %}
-          <a class="btn btn-vert" href="{{ version.disponible.url }}" target="_blank" rel="noopener">{% icone 'entree' %} Télécharger la version {{ version.disponible.version }}</a>
-        {% endif %}
-        <form method="post" action="{% url 'stock:mise_a_jour_verifier' %}">{% csrf_token %}
-          <button class="btn">{% icone 'historique' %} Vérifier les mises à jour</button>
-        </form>
-      </div>
-    </div>
-    {% if version.erreur %}
-      <div class="message message-warning">{% icone 'alerte' %}<div>Vérification impossible le {{ version.essai_le|date:"d/m/Y" }} à {{ version.essai_le|date:"H:i" }}. {{ version.erreur }}</div></div>
-    {% endif %}
-    {% if version.disponible %}
-      {% if BUREAU %}
-        <ol class="etapes-maj petit">
-          <li>Cliquez sur « Télécharger la version {{ version.disponible.version }} », puis ouvrez le fichier téléchargé.</li>
-          <li>Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis sur « Exécuter quand même ».</li>
-          <li>L'installateur vous demande de fermer le logiciel, puis : Suivant › Installer. Vos données sont gardées (une sauvegarde est faite juste avant).</li>
-        </ol>
-      {% else %}
-        <p class="petit">Pour installer la nouvelle version, ouvrez cette page sur l'ordinateur où le logiciel est installé.</p>
-      {% endif %}
-      {% if version.disponible.notes %}<div class="notes-version"><b>Nouveautés</b><br>{{ version.disponible.notes|linebreaksbr }}</div>{% endif %}
-    {% endif %}
-  </section>
-  {% endif %}
 
   <div class="grid-2 sauvegarde-zones">
     <section class="carte carte-pad">

@@ -6,12 +6,12 @@
   <div class="entete"><div><h1>Tableau de bord</h1><p>Vue d'ensemble du magasin.</p></div></div>
 
   <div class="kpis">
-    <div class="carte kpi"><div class="label">Articles actifs</div><div class="valeur">{{ nb_articles }}</div></div>
-    <div class="carte kpi"><div class="label">Valeur du stock ({{ DEVISE }})</div><div class="valeur">{{ valeur_stock }}</div></div>
-    <div class="carte kpi"><div class="label">À commander</div><div class="valeur" style="color:var(--orange)">{{ nb_alertes }}</div></div>
-    <div class="carte kpi"><div class="label">En rupture</div><div class="valeur" style="color:var(--rouge)">{{ nb_ruptures }}</div></div>
-    <div class="carte kpi"><div class="label">Sorties du mois ({{ DEVISE }})</div><div class="valeur">{{ sorties_mois }}</div></div>
-    <div class="carte kpi"><div class="label">Bons en brouillon</div><div class="valeur">{{ brouillons }}</div></div>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:articles' %}"><div class="label">Articles actifs</div><div class="valeur">{{ nb_articles }}</div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:etat_stock_date' %}"><div class="label">Valeur du stock ({{ DEVISE }})</div><div class="valeur">{{ valeur_stock }}</div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:articles' %}?filtre=alerte"><div class="label">À commander</div><div class="valeur" style="color:var(--orange)">{{ nb_alertes }}</div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:articles' %}?filtre=rupture"><div class="label">En rupture</div><div class="valeur" style="color:var(--rouge)">{{ nb_ruptures }}</div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:consommation' %}"><div class="label">Sorties du mois ({{ DEVISE }})</div><div class="valeur">{{ sorties_mois }}</div></a>
+    <a class="carte kpi kpi-lien" href="{% url 'stock:bons' %}?statut=brouillon"><div class="label">Bons en brouillon</div><div class="valeur">{{ brouillons }}</div></a>
   </div>
 
   <div class="grid-2">
@@ -19,13 +19,13 @@
       <h2 style="margin-top:0;font-size:17px">Articles à commander</h2>
       {% if alertes %}
       <div class="table-wrap"><table class="data">
-        <tr><th>Article</th><th>Emplacement</th><th class="num">Stock</th><th class="num">Min</th></tr>
+        <tr><th>Article</th><th class="col-pc">Emplacement</th><th class="num">Stock</th><th class="num">Min</th></tr>
         {% for a in alertes %}
         <tr>
           <td><a href="{% url 'stock:article_modifier' a.pk %}">{{ a.code }}</a> {{ a.designation }}</td>
-          <td>{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}">{{ a.emplacement }}</a>{% else %}—{% endif %}</td>
-          <td class="num"><span class="badge {% if a.stock <= 0 %}badge-danger{% else %}badge-warn{% endif %}">{{ a.stock|floatformat:"-3" }} {{ a.unite }}</span></td>
-          <td class="num">{{ a.stock_min|floatformat:"-3" }}</td>
+          <td class="col-pc">{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}">{{ a.emplacement }}</a>{% else %}—{% endif %}</td>
+          <td class="num"><span class="badge {% if a.stock <= 0 %}badge-danger{% else %}badge-warn{% endif %}">{{ a.stock|qte }} {{ a.unite }}</span></td>
+          <td class="num">{{ a.stock_min|qte }}</td>
         </tr>
         {% endfor %}
       </table></div>
@@ -43,18 +43,47 @@
     </section>
   </div>
 
+  <div class="grid-2" style="margin-top:20px">
+    <section class="carte carte-pad">
+      <h2 style="margin-top:0;font-size:17px">Valeur du stock par catégorie ({{ DEVISE }})</h2>
+      {% if par_categorie %}
+      <div class="table-wrap"><table class="data">
+        <thead><tr><th>Catégorie</th><th class="num">Articles</th><th class="num">Valeur</th><th class="col-pc" style="width:28%"></th></tr></thead>
+        <tbody>
+        {% for c in par_categorie %}
+          <tr><td>{{ c.nom }}</td><td class="num">{{ c.nb }}</td><td class="num sans-coupure">{{ c.valeur|montant }}</td><td class="col-pc"><div class="barre"><span style="width:{{ c.pourcent }}%"></span></div></td></tr>
+        {% endfor %}
+        </tbody>
+        <tfoot><tr><td>Total</td><td></td><td class="num sans-coupure">{{ valeur_stock }}</td><td class="col-pc"></td></tr></tfoot>
+      </table></div>
+      {% else %}<p class="muted">Aucun article pour l'instant.{% if request.user.is_staff %} <a href="{% url 'stock:import_articles' %}">Importer vos articles depuis Excel</a>{% endif %}</p>{% endif %}
+    </section>
+
+    <section class="carte carte-pad">
+      <h2 style="margin-top:0;font-size:17px">Rapports</h2>
+      <div class="liens-rapports">
+        <a href="{% url 'stock:consommation' %}">{% icone 'chantier' %}<span><b>Consommation</b><small>Par chantier, par engin ou par article ; Excel et PDF</small></span></a>
+        <a href="{% url 'stock:journal' %}">{% icone 'liste' %}<span><b>Journal des mouvements</b><small>Toutes les entrées et sorties, filtrables par période</small></span></a>
+        <a href="{% url 'stock:etat_stock_date' %}">{% icone 'inventaire' %}<span><b>État du stock à une date</b><small>Quantités et valeur en fin de mois, à signer</small></span></a>
+      </div>
+    </section>
+  </div>
+
   <section class="carte carte-pad" style="margin-top:20px">
-    <h2 style="margin-top:0;font-size:17px">Derniers mouvements</h2>
-    <div class="table-wrap"><table class="data">
-      <tr><th>Date</th><th>Bon</th><th>Type</th><th>Article</th><th class="num">Quantité</th><th>Chantier</th></tr>
+    <div class="entete" style="margin-bottom:8px"><h2 style="margin:0;font-size:17px">Derniers mouvements</h2><a href="{% url 'stock:journal' %}">Tout le journal</a></div>
+    <div class="table-wrap"><table class="data journal">
+      <thead><tr><th>Date</th><th class="col-pc">Type</th><th>Article</th><th class="num">Quantité</th><th class="col-pc">Chantier</th></tr></thead>
+      <tbody>
       {% for m in derniers %}
       <tr>
-        <td>{{ m.date|date:"d/m/Y H:i" }}</td><td>{{ m.reference }}</td><td>{{ m.get_type_display }}</td>
-        <td>{{ m.article.code }} {{ m.article.designation }}</td>
-        <td class="num" style="color:{% if m.quantite > 0 %}var(--primaire){% else %}var(--rouge){% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|floatformat:"-3" }} {{ m.article.unite }}</td>
-        <td>{{ m.chantier|default:"" }}</td>
+        <td class="c-date"><span class="sans-coupure">{{ m.date|date:"d/m/Y H:i" }}</span><div class="muted petit sans-coupure">{{ m.reference }}</div></td>
+        <td class="col-pc">{{ m.get_type_display }}</td>
+        <td class="c-article">{{ m.article.designation }}<div class="muted petit">{{ m.article.code }}</div></td>
+        <td class="num sans-coupure c-qte" style="color:{% if m.quantite > 0 %}var(--primaire){% else %}var(--rouge){% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|qte }} <span class="muted">{{ m.unite_qte }}</span></td>
+        <td class="col-pc">{{ m.chantier|default:"" }}</td>
       </tr>
-      {% empty %}<tr><td colspan="6" class="muted">Aucun mouvement pour l'instant.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="5" class="muted vide">Aucun mouvement pour l'instant.</td></tr>{% endfor %}
+      </tbody>
     </table></div>
   </section>
 </main>

@@ -1,9 +1,12 @@
+from django.conf import settings
 from django.contrib import admin, messages
 from django.db.models import F
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html, format_html_join
 
 from . import exports, services
+from .bureau import livrer
 from .models import (
     Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Etagere, Fournisseur,
     Inventaire, LigneEntree, LigneInventaire, LigneSortie, MouvementStock,
@@ -106,7 +109,7 @@ class AlerteFilter(admin.SimpleListFilter):
 
 @admin.action(description='📊 Exporter en Excel')
 def exporter_articles(modeladmin, request, queryset):
-    return exports.etat_stock(queryset.select_related('categorie', 'etagere__bloc'))
+    return livrer(request, exports.etat_stock(queryset.select_related('categorie', 'etagere__bloc')))
 
 
 @admin.register(Article)
@@ -198,7 +201,7 @@ def valider_bons(modeladmin, request, queryset):
             services.valider(bon, request.user)
             ok += 1
         except services.StockError as e:
-            modeladmin.message_user(request, ' '.join(e.messages), messages.ERROR)
+            modeladmin.message_user(request, f'{bon.numero} : ' + ' '.join(e.messages), messages.ERROR)
     if ok:
         modeladmin.message_user(request, f'{ok} bon(s) validé(s).', messages.SUCCESS)
 
@@ -208,10 +211,10 @@ def annuler_bons(modeladmin, request, queryset):
     ok = 0
     for bon in queryset:
         try:
-            services.annuler(bon, request.user)
+            services.annuler(bon, request.user, "Annulé depuis l'administration")
             ok += 1
         except services.StockError as e:
-            modeladmin.message_user(request, ' '.join(e.messages), messages.ERROR)
+            modeladmin.message_user(request, f'{bon.numero} : ' + ' '.join(e.messages), messages.ERROR)
     if ok:
         modeladmin.message_user(request, f'{ok} bon(s) annulé(s).', messages.SUCCESS)
 
@@ -220,7 +223,7 @@ def annuler_bons(modeladmin, request, queryset):
 def imprimer_bons(modeladmin, request, queryset):
     from .pdf import reponse_pdf
 
-    return reponse_pdf(list(queryset), f'{queryset.model.PREFIXE}_{queryset.count()}_bons')
+    return livrer(request, reponse_pdf(list(queryset), f'{queryset.model.PREFIXE}_{queryset.count()}_bons'))
 
 
 class LigneInlineBase(admin.TabularInline):
@@ -253,15 +256,16 @@ class LigneSortieInline(LigneInlineBase):
 
 class LigneInventaireInline(LigneInlineBase):
     model = LigneInventaire
-    fields = ('article', 'stock_theorique', 'stock_compte')
-    readonly_fields = ('stock_theorique',)
+    fields = ('article', 'stock_theorique', 'stock_compte', 'compte_le')
+    readonly_fields = ('stock_theorique', 'compte_le')
 
 
 class BonAdminBase(admin.ModelAdmin):
     actions = [valider_bons, annuler_bons, imprimer_bons]
     date_hierarchy = 'date'
     search_fields = ('numero', 'observation')
-    readonly_fields = ('numero', 'statut_badge', 'cree_par', 'valide_par', 'date_validation')
+    readonly_fields = ('numero', 'statut_badge', 'cree_par', 'valide_par', 'date_validation',
+                       'annule_par', 'date_annulation', 'motif_annulation')
 
     def get_readonly_fields(self, request, obj=None):
         champs = list(super().get_readonly_fields(request, obj))
@@ -286,8 +290,10 @@ class BonAdminBase(admin.ModelAdmin):
 
     @admin.display(description='')
     def pdf(self, obj):
-        return format_html('<a href="{}" target="_blank">🖨️ PDF</a>',
-                           reverse('stock:bon_pdf', args=[obj._meta.model_name, obj.pk]))
+        url = reverse('stock:bon_pdf', args=[obj._meta.model_name, obj.pk])
+        if settings.BUREAU:  # fenêtre Windows : pas de nouvel onglet, le PDF s'ouvre dans le lecteur (livrer)
+            return format_html('<a href="{}">🖨️ PDF</a>', url)
+        return format_html('<a href="{}" target="_blank">🖨️ PDF</a>', url)
 
     @admin.display(description='Total')
     def total_affiche(self, obj):
@@ -302,7 +308,7 @@ class BonEntreeAdmin(BonAdminBase):
     autocomplete_fields = ('fournisseur',)
     inlines = [LigneEntreeInline]
     fields = ('numero', 'statut_badge', 'date', 'fournisseur', 'reference', 'observation',
-              'cree_par', 'valide_par', 'date_validation')
+              'cree_par', 'valide_par', 'date_validation', 'annule_par', 'date_annulation', 'motif_annulation')
 
 
 @admin.register(BonSortie)
@@ -313,7 +319,7 @@ class BonSortieAdmin(BonAdminBase):
     autocomplete_fields = ('chantier', 'engin')
     inlines = [LigneSortieInline]
     fields = ('numero', 'statut_badge', 'date', 'chantier', 'engin', 'demandeur', 'observation',
-              'cree_par', 'valide_par', 'date_validation')
+              'cree_par', 'valide_par', 'date_validation', 'annule_par', 'date_annulation', 'motif_annulation')
 
 
 @admin.register(Inventaire)
@@ -321,7 +327,15 @@ class InventaireAdmin(BonAdminBase):
     list_display = ('numero', 'date', 'observation', 'statut_badge', 'pdf')
     list_filter = ('statut',)
     inlines = [LigneInventaireInline]
-    fields = ('numero', 'statut_badge', 'date', 'observation', 'cree_par', 'valide_par', 'date_validation')
+    fields = ('numero', 'statut_badge', 'date', 'observation', 'cree_par', 'valide_par', 'date_validation',
+              'annule_par', 'date_annulation', 'motif_annulation')
+
+    def save_formset(self, request, form, formset, change):
+        # Heure du comptage : les mouvements faits après seront repris à la validation.
+        for f in formset.forms:
+            if f.has_changed() and 'stock_compte' in f.changed_data:
+                f.instance.compte_le = timezone.now() if f.instance.stock_compte is not None else None
+        super().save_formset(request, form, formset, change)
 
 
 # =========================================================
@@ -330,7 +344,7 @@ class InventaireAdmin(BonAdminBase):
 
 @admin.action(description='📊 Exporter en Excel')
 def exporter_mouvements(modeladmin, request, queryset):
-    return exports.mouvements(queryset)
+    return livrer(request, exports.mouvements(queryset))
 
 
 @admin.register(MouvementStock)

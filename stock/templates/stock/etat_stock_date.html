@@ -1,0 +1,71 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}État du stock au {{ jour|date:"d/m/Y" }}{% endblock %}
+{% block contenu %}
+<main class="page rapport">
+  <div class="entete">
+    <div>
+      <div class="seulement-impression muted">{{ NOM_AFFICHE }}</div>
+      <h1>État du stock au {{ jour|date:"d/m/Y" }}</h1>
+      <p>Quantités et valeur {% if jour == aujourd_hui %}aujourd'hui{% else %}le {{ jour|date:"d/m/Y" }} au soir{% endif %}, au prix moyen pondéré.</p>
+    </div>
+    <div class="actions-rapport no-print">
+      <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+      <a class="btn" href="?{{ lien_pdf }}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} PDF à signer</a>
+    </div>
+  </div>
+
+  <form method="get" class="carte filtres-rapport no-print">
+    <div class="raccourcis">
+      {% for r in dates_rapides %}<a class="puce{% if r.actif %} actif{% endif %}" href="?{{ r.lien }}">{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="grille-filtres">
+      <div class="champ"><label for="date">Date</label><input type="date" id="date" name="date" value="{{ jour|date:'Y-m-d' }}" max="{{ aujourd_hui|date:'Y-m-d' }}"></div>
+      <div class="champ">
+        <label for="par">Sous-totaux</label>
+        <select id="par" name="par">
+          {% for cle, libelle in groupes_etat.items %}<option value="{{ cle }}"{% if par == cle %} selected{% endif %}>{{ libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <label class="case-filtre"><input type="checkbox" name="zero" value="1"{% if avec_zero %} checked{% endif %}> Montrer aussi les articles à zéro</label>
+      <div class="boutons"><button class="btn btn-vert">{% icone 'recherche' %} Afficher</button></div>
+    </div>
+  </form>
+
+  <div class="kpis">
+    <div class="carte kpi"><div class="label">Valeur du stock ({{ DEVISE }})</div><div class="valeur">{{ total|montant }}</div></div>
+    <div class="carte kpi"><div class="label">Articles</div><div class="valeur">{{ nb }}</div></div>
+    <div class="carte kpi"><div class="label">{% if par == 'bloc' %}Blocs{% else %}Catégories{% endif %}</div><div class="valeur">{{ groupes|length }}</div></div>
+  </div>
+
+  {% if nb_approx %}
+  <div class="message message-info no-print">{% icone 'alerte' %}<div>{{ nb_approx }} article{{ nb_approx|pluralize }} marqué{{ nb_approx|pluralize }} « ≈ » : leur prix moyen à cette date n'est pas connu (mouvements enregistrés avant la mise à jour du logiciel). Le prix moyen actuel est utilisé.</div></div>
+  {% endif %}
+
+  {% for g in groupes %}
+  <section class="carte carte-pad groupe-rapport">
+    <div class="titre-groupe-rapport"><h2>{{ g.nom }}</h2><b>{{ g.total|montant }} {{ DEVISE }}</b></div>
+    <div class="table-wrap"><table class="data">
+      <thead><tr><th>Article</th><th class="num">Quantité</th><th class="num col-pc">Prix moyen</th><th class="num">Valeur ({{ DEVISE }})</th></tr></thead>
+      <tbody>
+      {% for l in g.lignes %}
+        <tr>
+          <td><a href="{% url 'stock:article_modifier' l.article.pk %}"><b>{{ l.designation }}</b></a><div class="muted petit">{{ l.code }}{% if not l.article.actif %} · désactivé{% endif %}</div></td>
+          <td class="num sans-coupure">{{ l.qte|qte }} <span class="muted">{{ l.unite_qte }}</span></td>
+          <td class="num col-pc">{% if l.approx %}<span title="Prix moyen actuel">≈ </span>{% endif %}{{ l.pm|montant }}</td>
+          <td class="num sans-coupure">{% if l.approx %}≈ {% endif %}{{ l.valeur|montant }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      <tfoot><tr><td>Sous-total</td><td></td><td class="col-pc"></td><td class="num">{{ g.total|montant }}</td></tr></tfoot>
+    </table></div>
+  </section>
+  {% empty %}
+  <div class="carte vide">Aucun article en stock à cette date.</div>
+  {% endfor %}
+
+  {% if groupes|length > 1 %}
+  <div class="carte total-rapport"><span>Total général</span><span>{{ total|montant }} {{ DEVISE }}</span></div>
+  {% endif %}
+</main>
+{% endblock %}

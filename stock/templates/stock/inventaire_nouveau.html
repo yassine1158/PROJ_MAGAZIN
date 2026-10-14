@@ -1,0 +1,98 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Nouvel inventaire{% endblock %}
+{% block contenu %}
+<main class="page" style="max-width:820px">
+  <div class="entete">
+    <div><h1>Nouvel inventaire</h1><p>Choisissez ce que vous allez compter. Le stock ne change qu'à la validation.</p></div>
+  </div>
+
+  {% for e in form.non_field_errors %}
+  <div class="message message-error">{% icone 'alerte' %}<div>{{ e }}</div></div>
+  {% endfor %}
+
+  <form method="post" autocomplete="off" id="form-inventaire">
+    {% csrf_token %}
+    <section class="carte carte-pad" style="margin-bottom:20px">
+      <h2>1. Que voulez-vous compter ?</h2>
+      {% with choix=form.perimetre.value %}
+      <label class="choix-radio choix-perimetre">
+        <input type="radio" name="perimetre" value="tout"{% if choix == 'tout' or not choix %} checked{% endif %}>
+        <span class="choix-texte"><b>Tout le magasin</b><span class="muted petit">{{ nb_tout }} article{{ nb_tout|pluralize }} actif{{ nb_tout|pluralize }}</span></span>
+      </label>
+
+      <label class="choix-radio choix-perimetre">
+        <input type="radio" name="perimetre" value="bloc"{% if choix == 'bloc' %} checked{% endif %}{% if not blocs %} disabled{% endif %}>
+        <span class="choix-texte"><b>Un bloc</b>
+          {% if blocs %}
+          <select name="bloc" aria-label="Bloc à compter" data-pour="bloc">
+            <option value="">Choisir le bloc…</option>
+            {% for b in blocs %}<option value="{{ b.pk }}"{% if form.bloc.value|stringformat:'s' == b.pk|stringformat:'s' %} selected{% endif %}>{{ b }} ({{ b.nb }} article{{ b.nb|pluralize }})</option>{% endfor %}
+          </select>
+          {% else %}<span class="muted petit">Aucun bloc : le plan du magasin n'est pas encore dessiné.</span>{% endif %}
+          {% for e in form.bloc.errors %}<span class="erreur-champ">{{ e }}</span>{% endfor %}
+        </span>
+      </label>
+
+      <label class="choix-radio choix-perimetre">
+        <input type="radio" name="perimetre" value="etagere"{% if choix == 'etagere' %} checked{% endif %}{% if not etageres %} disabled{% endif %}>
+        <span class="choix-texte"><b>Une étagère</b>
+          {% if etageres %}
+          <select name="etagere" aria-label="Étagère à compter" data-pour="etagere">
+            <option value="">Choisir l'étagère…</option>
+            {% regroup etageres by bloc as par_bloc %}
+            {% for g in par_bloc %}<optgroup label="{{ g.grouper }}">{% for e in g.list %}<option value="{{ e.pk }}"{% if form.etagere.value|stringformat:'s' == e.pk|stringformat:'s' %} selected{% endif %}>Étagère {{ e.code }} ({{ e.nb }} article{{ e.nb|pluralize }})</option>{% endfor %}</optgroup>{% endfor %}
+          </select>
+          {% else %}<span class="muted petit">Aucune étagère dans le plan du magasin.</span>{% endif %}
+          {% for e in form.etagere.errors %}<span class="erreur-champ">{{ e }}</span>{% endfor %}
+        </span>
+      </label>
+
+      <label class="choix-radio choix-perimetre">
+        <input type="radio" name="perimetre" value="categorie"{% if choix == 'categorie' %} checked{% endif %}{% if not categories %} disabled{% endif %}>
+        <span class="choix-texte"><b>Une catégorie</b>
+          {% if categories %}
+          <select name="categorie" aria-label="Catégorie à compter" data-pour="categorie">
+            <option value="">Choisir la catégorie…</option>
+            {% for c in categories %}<option value="{{ c.pk }}"{% if form.categorie.value|stringformat:'s' == c.pk|stringformat:'s' %} selected{% endif %}>{{ c.nom }} ({{ c.nb }} article{{ c.nb|pluralize }})</option>{% endfor %}
+          </select>
+          {% else %}<span class="muted petit">Aucune catégorie.</span>{% endif %}
+          {% for e in form.categorie.errors %}<span class="erreur-champ">{{ e }}</span>{% endfor %}
+        </span>
+      </label>
+      {% endwith %}
+      {% for e in form.perimetre.errors %}<div class="erreur-champ">{{ e }}</div>{% endfor %}
+
+      <div class="champ" style="margin:16px 0 0">
+        <label for="observation">Remarque</label>
+        <input id="observation" name="observation" maxlength="255" value="{{ form.observation.value|default:'' }}" placeholder="Facultatif. Ex. : inventaire de fin d'année">
+      </div>
+    </section>
+
+    <section class="carte carte-pad comment-inventaire">
+      <h2>Comment ça se passe</h2>
+      <ol>
+        <li>Imprimez la fiche de comptage, ou comptez directement avec le téléphone.</li>
+        <li>Les magasiniers tapent la quantité trouvée en rayon pour chaque article : elle est enregistrée tout de suite.</li>
+        <li>Un responsable regarde les écarts puis valide : le stock prend les quantités comptées et les écarts sont gardés dans l'historique.</li>
+      </ol>
+      <p class="muted petit">Les entrées et sorties restent possibles pendant l'inventaire : celles faites après le comptage d'un article sont reprises à la validation.</p>
+    </section>
+
+    <div class="boutons-bas">
+      <a class="btn" href="{% url 'stock:inventaires' %}">Annuler</a>
+      <button type="submit" class="btn btn-vert btn-grand">{% icone 'inventaire' %} Créer l'inventaire</button>
+    </div>
+  </form>
+</main>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Choisir dans une liste coche le choix correspondant.
+  document.querySelectorAll('#form-inventaire select[data-pour]').forEach((liste) => {
+    const cocher = () => { document.querySelector(`#form-inventaire input[name=perimetre][value=${liste.dataset.pour}]`).checked = true; };
+    liste.addEventListener('change', cocher);
+    liste.addEventListener('focus', cocher);
+  });
+</script>
+{% endblock %}

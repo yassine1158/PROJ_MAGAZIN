@@ -16,6 +16,26 @@ def quantite(valeur):
     return nombre(valeur, decimales)
 
 
+UNITES_LISIBLES = {'M2': 'm²', 'M3': 'm³'}
+
+
+def quantite_unite(valeur, unite):
+    """Quantité suivie de son unité, pour les messages : « 1 JEU », « 12,5 m² », « 3 unités »."""
+    if unite == 'U':
+        return f'{quantite(valeur)} {"unités" if abs(Decimal(valeur or 0)) > 1 else "unité"}'
+    return f'{quantite(valeur)} {UNITES_LISIBLES.get(unite, unite)}'
+
+
+def ordre_emplacement(prefixe=''):
+    """Tri « comme on marche dans le magasin » : bloc, étagère, niveau, case, code ; les articles non rangés à la fin.
+
+    prefixe : chemin vers l'article (« article__ » pour trier des lignes de bon)."""
+    from django.db.models import F
+
+    return [F(f'{prefixe}etagere__bloc__code').asc(nulls_last=True), F(f'{prefixe}etagere__code').asc(nulls_last=True),
+            F(f'{prefixe}niveau').asc(nulls_last=True), f'{prefixe}case', f'{prefixe}code']
+
+
 def nuances(couleur):
     """Couleur principale « #rrggbb » → (couleur, version foncée, version très claire) pour l'interface."""
     try:

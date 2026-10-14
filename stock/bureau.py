@@ -29,6 +29,22 @@ def ouvrir_fichier(chemin):
         subprocess.Popen(['open' if sys.platform == 'darwin' else 'xdg-open', str(chemin)])
 
 
+def enregistrer(dossier, nom, contenu, essais=20):
+    """Écrit le fichier dans le dossier. S'il est déjà ouvert et verrouillé (Excel, lecteur PDF…),
+    essaie « nom (2).ext », « nom (3).ext »… Renvoie le chemin écrit, ou None si tous sont verrouillés.
+    """
+    base, extension = os.path.splitext(nom)
+    for n in range(1, essais + 1):
+        chemin = dossier / (nom if n == 1 else f'{base} ({n}){extension}')
+        try:
+            chemin.write_bytes(contenu)
+            return chemin
+        except PermissionError:
+            if not chemin.exists():
+                raise  # dossier protégé : ce n'est pas un fichier resté ouvert
+    return None
+
+
 def livrer(request, reponse):
     """Dans la version bureau, un PDF ou un Excel est enregistré dans Documents puis ouvert directement.
 
@@ -36,13 +52,26 @@ def livrer(request, reponse):
     """
     if not settings.BUREAU or not est_local(request):
         return reponse
-    nom = re.search(r'filename="([^"]+)"', reponse.get('Content-Disposition', ''))
-    chemin = dossier_documents() / (nom.group(1) if nom else 'document')
-    chemin.write_bytes(reponse.content)
+    retour = redirect(request.META.get('HTTP_REFERER') or '/')
+    trouve = re.search(r'filename="([^"]+)"', reponse.get('Content-Disposition', ''))
+    nom = Path(trouve.group(1)).name if trouve else ''
+    nom = nom if nom.strip('.') else 'document'
+    dossier = None
+    try:
+        dossier = dossier_documents()
+        chemin = enregistrer(dossier, nom, reponse.content)
+    except OSError:
+        lieu = f' dans {dossier}' if dossier else ''
+        messages.error(request, f"Le fichier {nom} n'a pas pu être enregistré{lieu}. Vérifiez que le disque n'est "
+                                'pas plein et que Windows autorise ce dossier, puis recommencez.')
+        return retour
+    if chemin is None:
+        messages.warning(request, f'Le fichier {nom} est déjà ouvert dans un autre programme (Excel, lecteur '
+                                  f'PDF…). Fermez-le, puis recommencez. Il se trouve dans {dossier}.')
+        return retour
     try:
         ouvrir_fichier(chemin)
         messages.success(request, f'Fichier ouvert : {chemin}')
     except OSError:
         messages.warning(request, f'Fichier enregistré dans {chemin} (aucun programme pour l\'ouvrir).')
-    retour = request.META.get('HTTP_REFERER') or '/'
-    return redirect(retour)
+    return retour

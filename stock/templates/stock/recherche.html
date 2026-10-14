@@ -51,7 +51,8 @@
           <button type="button" id="btn-vue-dessus">Vue de dessus</button>
         </div>
       </div>
-      <div class="aide">Glisser pour tourner · molette pour zoomer · clic droit pour déplacer</div>
+      <div class="aide">Glisser : tourner · molette : zoomer · clic droit : déplacer · clic sur une étagère : ses articles</div>
+      <div class="aide-tactile">1 doigt : tourner · 2 doigts : zoomer<br>Touchez une étagère pour voir ses articles</div>
       <div class="chargement-3d" id="chargement-3d"><div class="spinner"></div> Chargement du plan…</div>
       <div class="plan-vide" id="plan-vide">
         <div>
@@ -79,6 +80,7 @@
   window.MAGASIN = {
     apiRecherche: "{% url 'stock:api_recherche' %}",
     apiPlan: "{% url 'stock:api_plan' %}",
+    urlArticles: "{% url 'stock:articles' %}",
     csrf: "{{ csrf_token }}",
   };
 </script>

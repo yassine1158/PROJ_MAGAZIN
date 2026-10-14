@@ -31,6 +31,10 @@
     <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.5 0 2-1 2-2s-1-1.5-1-2.5 1-1.5 2-1.5h2a4 4 0 0 0 4-4c0-4.4-4-8-9-8z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7" r="1"/><circle cx="15" cy="7" r="1"/></symbol>
     <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 21h16"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h7V3M8 21v-7h8v7"/></symbol>
     <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
     <symbol id="i-whatsapp" viewBox="0 0 24 24"><path d="M3.5 20.5 5 16a8.5 8.5 0 1 1 3 3z"/><path d="M9 8.5c0 3.5 3 6.5 6.5 6.5l1-1.6-2-1-1 .9c-1-.4-2.4-1.8-2.8-2.8l.9-1-1-2z"/></symbol>
   </defs>
@@ -144,12 +148,32 @@
         <article class="fonction revele">
           <div class="icone"><svg><use href="#i-check"/></svg></div>
           <h3>Inventaires</h3>
-          <p>Comptez le stock réel, l'écart est corrigé et tracé automatiquement.</p>
+          <p>Tout le magasin ou une étagère, sur papier ou au téléphone. Écarts corrigés et tracés.</p>
         </article>
         <article class="fonction fonction-large revele">
           <div class="icone orange"><svg><use href="#i-layout"/></svg></div>
           <h3>Éditeur de plan</h3>
           <p>Dessinez le magasin tel qu'il est : murs, pièces, blocs, étagères, portes, bureau, poteaux, quai… à la souris, avec les cotes en mètres.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-table"/></svg></div>
+          <h3>Import Excel</h3>
+          <p>Votre liste d'articles reprise en une fois, avec contrôle des erreurs avant l'import.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone orange"><svg><use href="#i-qr"/></svg></div>
+          <h3>Étiquettes QR</h3>
+          <p>Pour les articles et les étagères : un scan au téléphone et l'article est trouvé.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-back"/></svg></div>
+          <h3>Retours de chantier</h3>
+          <p>Le non-utilisé revient en stock et la consommation du chantier est corrigée.</p>
+        </article>
+        <article class="fonction revele">
+          <div class="icone"><svg><use href="#i-save"/></svg></div>
+          <h3>Sauvegardes auto</h3>
+          <p>Chaque jour et avant chaque mise à jour, avec copie sur clé USB.</p>
         </article>
       </div>
     </div>
@@ -277,9 +301,14 @@
         <details><summary>Je change d'ordinateur ?</summary>
           <p>Contactez-nous avec le code du nouvel ordinateur : nous transférons votre licence.</p></details>
         <details><summary>Mes données sont-elles en sécurité ?</summary>
-          <p>Elles restent sur votre ordinateur, pas sur Internet. Pensez à en faire une copie régulière.</p></details>
+          <p>Elles restent sur votre ordinateur, pas sur Internet. Le logiciel en fait une sauvegarde chaque jour et avant chaque
+            mise à jour ; vous pouvez aussi la copier sur une clé USB.</p></details>
         <details><summary>Puis-je reprendre mes articles existants ?</summary>
-          <p>Oui : créez vos articles dans le logiciel ou faites-vous aider à l'installation pour reprendre votre liste.</p></details>
+          <p>Oui : si votre liste est dans un fichier Excel, le logiciel l'importe en une fois (un modèle est fourni). Sinon,
+            créez vos articles un par un.</p></details>
+        <details><summary>Comment avoir les nouvelles versions ?</summary>
+          <p>Le logiciel vous prévient quand une nouvelle version sort : un clic sur « Télécharger », puis installez-la par-dessus.
+            Vos données sont gardées, et une sauvegarde est faite juste avant.</p></details>
       </div>
     </div>
   </section>

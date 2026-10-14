@@ -1,0 +1,8 @@
+{% comment %}Liens de page : page = résultat de views.paginer ; quoi = « lignes », « articles », « bons »…{% endcomment %}
+{% if page.paginator.num_pages > 1 %}
+<nav class="pagination no-print" aria-label="Pages">
+  {% if page.lien_precedent %}<a class="btn" href="?{{ page.lien_precedent }}" rel="prev">← Précédents</a>{% else %}<span></span>{% endif %}
+  <span class="muted">Page {{ page.number }} sur {{ page.paginator.num_pages }} · {{ quoi|default:"lignes" }} {{ page.start_index }} à {{ page.end_index }}</span>
+  {% if page.lien_suivant %}<a class="btn" href="?{{ page.lien_suivant }}" rel="next">Suivants →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}

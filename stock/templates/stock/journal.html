@@ -1,0 +1,94 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Journal des mouvements{% endblock %}
+{% block contenu %}
+<main class="page rapport">
+  <div class="entete">
+    <div>
+      <div class="seulement-impression muted">{{ NOM_AFFICHE }}</div>
+      <h1>Journal des mouvements</h1>
+      <p>Du {{ choix.du|date:"d/m/Y" }} au {{ choix.au|date:"d/m/Y" }} · chaque entrée, sortie, correction et annulation, ligne par ligne.</p>
+    </div>
+    <div class="actions-rapport no-print">
+      <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+    </div>
+  </div>
+
+  <form method="get" class="carte filtres-rapport no-print">
+    <div class="raccourcis">
+      {% for r in raccourcis %}<a class="puce{% if r.actif %} actif{% endif %}" href="?{{ r.lien }}">{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="grille-filtres">
+      <div class="champ"><label for="du">Du</label><input type="date" id="du" name="du" value="{{ choix.du|date:'Y-m-d' }}"></div>
+      <div class="champ"><label for="au">Au</label><input type="date" id="au" name="au" value="{{ choix.au|date:'Y-m-d' }}"></div>
+      <div class="champ">
+        <label for="type">Type</label>
+        <select id="type" name="type">
+          <option value="">Tous</option>
+          {% for cle, libelle in types %}<option value="{{ cle }}"{% if choix.type == cle %} selected{% endif %}>{{ libelle }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="champ"><label for="article">Article</label><input type="search" id="article" name="article" value="{{ choix.article }}" placeholder="Code ou nom"></div>
+      <div class="champ">
+        <label for="chantier">Chantier</label>
+        <select id="chantier" name="chantier">
+          <option value="">Tous</option>
+          {% for c in chantiers %}<option value="{{ c.pk }}"{% if choix.chantier.pk == c.pk %} selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="fournisseur">Fournisseur</label>
+        <select id="fournisseur" name="fournisseur">
+          <option value="">Tous</option>
+          {% for f in fournisseurs %}<option value="{{ f.pk }}"{% if choix.fournisseur.pk == f.pk %} selected{% endif %}>{{ f.nom }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="engin">Engin</label>
+        <select id="engin" name="engin">
+          <option value="">Tous</option>
+          {% for e in engins %}<option value="{{ e.pk }}"{% if choix.engin.pk == e.pk %} selected{% endif %}>{{ e }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="boutons">
+        <button class="btn btn-vert">{% icone 'recherche' %} Afficher</button>
+        {% if filtre_actif %}<a class="btn" href="?du={{ choix.du|date:'Y-m-d' }}&amp;au={{ choix.au|date:'Y-m-d' }}" title="Effacer les filtres">{% icone 'annuler' %}</a>{% endif %}
+      </div>
+    </div>
+  </form>
+
+  <div class="kpis">
+    <div class="carte kpi"><div class="label">Entrées ({{ DEVISE }})</div><div class="valeur qte-plus">{{ totaux.entrees|montant }}</div></div>
+    <div class="carte kpi"><div class="label">Sorties ({{ DEVISE }})</div><div class="valeur qte-moins">{{ totaux.sorties|montant }}</div></div>
+    <div class="carte kpi"><div class="label">Mouvements</div><div class="valeur">{{ totaux.nb }}</div></div>
+  </div>
+  <p class="muted petit note-rapport">Entrées : valeur de tout ce qui a ajouté du stock (réceptions, corrections…) ; sorties : de tout ce qui en a retiré. {% if totaux.nb_annules == 1 %}La ligne d'un bon annulé est affichée mais ne compte pas. {% elif totaux.nb_annules %}Les {{ totaux.nb_annules }} lignes de bons annulés sont affichées mais ne comptent pas. {% endif %}Ce que les chantiers ont consommé : voir la <a href="{% url 'stock:consommation' %}?du={{ choix.du|date:'Y-m-d' }}&amp;au={{ choix.au|date:'Y-m-d' }}">consommation</a>.</p>
+
+  <section class="carte table-wrap">
+    <table class="data journal">
+      <thead><tr>
+        <th>Date</th><th class="col-pc">Type</th><th>Article</th><th class="num">Quantité</th>
+        <th class="num col-pc">Stock après</th><th class="num">Valeur</th><th class="col-pc">Chantier / engin</th><th class="col-pc">Par</th>
+      </tr></thead>
+      <tbody>
+      {% for m in page %}
+        <tr{% if m.annule %} class="ligne-annulee"{% endif %}>
+          <td class="c-date"><span class="sans-coupure">{{ m.date|date:"d/m/Y H:i" }}</span><div class="petit sans-coupure">{% if m.lien %}<a href="{{ m.lien }}">{{ m.reference }}</a>{% else %}{{ m.reference }}{% endif %}{% if m.annule %} <span class="mention-annule">bon annulé</span>{% endif %}</div></td>
+          <td class="col-pc"><span class="badge {% if m.type == 'ENTREE' %}badge-ok{% elif m.type == 'SORTIE' %}badge-warn{% elif m.type == 'ANNULATION' %}badge-danger{% else %}badge-gris{% endif %}">{{ m.get_type_display }}</span></td>
+          <td class="c-article"><b>{{ m.article.designation }}</b><div class="muted petit">{{ m.article.code }}</div></td>
+          <td class="num sans-coupure c-qte {% if m.quantite > 0 %}qte-plus{% else %}qte-moins{% endif %}">{% if m.quantite > 0 %}+{% endif %}{{ m.quantite|qte }} <span class="muted">{{ m.unite_qte }}</span></td>
+          <td class="num col-pc">{{ m.stock_apres|qte }}</td>
+          <td class="num sans-coupure c-valeur">{{ m.valeur|montant }} <span class="seulement-telephone muted">{{ DEVISE }}</span></td>
+          <td class="col-pc">{{ m.chantier|default:"" }}{% if m.engin %}<div class="muted petit">{{ m.engin.code }}</div>{% endif %}</td>
+          <td class="col-pc petit">{% if m.utilisateur %}{{ m.utilisateur.get_full_name|default:m.utilisateur.get_username }}{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8" class="vide">Aucun mouvement sur cette période{% if filtre_actif %} avec ces filtres{% endif %}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% include 'stock/_pagination.html' %}
+</main>
+{% endblock %}

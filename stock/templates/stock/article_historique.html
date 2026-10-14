@@ -1,0 +1,88 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Fiche de stock {{ article.code }}{% endblock %}
+{% block contenu %}
+<main class="page rapport">
+  {% include 'stock/_messages.html' %}
+  <div class="entete">
+    <div>
+      <div class="seulement-impression muted">{{ NOM_AFFICHE }}</div>
+      <p class="fil no-print"><a href="{% url 'stock:articles' %}">Articles</a> › <a href="{% url 'stock:article_modifier' article.pk %}">{{ article.code }}</a> › Fiche de stock</p>
+      <h1>{{ article.designation }}</h1>
+      <p>Fiche de stock · {{ article.code }} · {{ article.get_unite_display }} · {% if article.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ article.pk }}">{{ article.emplacement }}</a>{% else %}non rangé{% endif %}{% if not article.actif %} · <span class="badge badge-gris">Désactivé</span>{% endif %}</p>
+    </div>
+    <div class="actions-rapport no-print">
+      <a class="btn" href="{% url 'stock:article_modifier' article.pk %}">{% icone 'modifier' %} Fiche article</a>
+      <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+      <a class="btn" href="?{{ lien_pdf }}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} PDF</a>
+      {% if request.user.is_staff and article.actif %}<a class="btn" href="{% url 'stock:etiquettes' %}?article={{ article.pk }}" title="Imprimer l'étiquette à QR code de cet article">{% icone 'qr' %} Étiquette</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="kpis kpis-article">
+    <div class="carte kpi">
+      <div class="label">Stock actuel</div>
+      <div class="valeur">{{ article.stock|qte }} <small>{{ unite_stock }}</small></div>
+      <div class="muted petit"><span class="sans-coupure">{{ valeur_stock|montant }} {{ DEVISE }}</span> · <span class="sans-coupure">prix moyen {{ article.prix_moyen|montant }}</span>{% if article.stock_min %} · <span class="sans-coupure">seuil {{ article.stock_min|qte }}</span>{% endif %}</div>
+    </div>
+    <div class="carte kpi">
+      <div class="label">Consommé ces {{ conso.jours }} derniers jours</div>
+      <div class="valeur">{{ conso.qte|qte }} <small>{{ conso.unite_qte }}</small></div>
+      <div class="muted petit"><span class="sans-coupure">{{ conso.valeur|montant }} {{ DEVISE }}</span>{% if conso.couverture is not None %} · stock pour environ {{ conso.couverture }} jour{{ conso.couverture|pluralize }} à ce rythme{% endif %}</div>
+    </div>
+    <div class="carte kpi">
+      <div class="label">Dernier prix d'achat</div>
+      <div class="valeur">{% if achat.prix %}{{ achat.prix|montant }} <small>{{ DEVISE }}</small>{% else %}—{% endif %}</div>
+      <div class="muted petit">{% if achat.bon %}le {{ achat.date|date:"d/m/Y" }} · <a class="sans-coupure" href="{% url 'stock:bon_detail' 'entree' achat.bon.pk %}">{{ achat.bon.numero }}</a>{% else %}Aucun achat avec un prix{% endif %}</div>
+    </div>
+    <div class="carte kpi">
+      <div class="label">Dernier fournisseur</div>
+      <div class="valeur valeur-texte">{{ achat.fournisseur.nom|default:"—" }}</div>
+      <div class="muted petit">{% if achat.fournisseur %}le {{ achat.date_fournisseur|date:"d/m/Y" }}{% if achat.fournisseur.telephone %} · <span class="sans-coupure">{{ achat.fournisseur.telephone }}</span>{% endif %}{% else %}Aucune entrée avec un fournisseur{% endif %}</div>
+    </div>
+  </div>
+
+  <form method="get" class="carte filtres-rapport no-print">
+    <div class="raccourcis">
+      {% for r in raccourcis %}<a class="puce{% if r.actif %} actif{% endif %}" href="?{{ r.lien }}">{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="grille-filtres">
+      <div class="champ"><label for="du">Du</label><input type="date" id="du" name="du" value="{{ du|date:'Y-m-d' }}"></div>
+      <div class="champ"><label for="au">Au</label><input type="date" id="au" name="au" value="{{ au|date:'Y-m-d' }}"></div>
+      <div class="boutons"><button class="btn btn-vert">{% icone 'recherche' %} Afficher</button></div>
+    </div>
+  </form>
+
+  <div class="bilan-periode carte">
+    {% if du %}<div><span>Stock au {{ du|date:"d/m/Y" }}</span><b>{{ fiche.stock_debut|qte }}</b></div>{% endif %}
+    <div><span>Entrées</span><b class="qte-plus">+{{ fiche.entrees|qte }}</b></div>
+    <div><span>Sorties</span><b class="qte-moins">−{{ fiche.sorties|qte }}</b></div>
+    <div><span>{% if au %}Stock au {{ au|date:"d/m/Y" }}{% else %}Stock à la fin{% endif %}</span><b>{{ fiche.stock_fin|qte }} <small class="muted">{{ article.unite }}</small></b></div>
+  </div>
+
+  <section class="carte table-wrap">
+    <table class="data kardex">
+      <thead><tr>
+        <th>Date · bon</th><th>Opération</th><th class="num">Entrée</th><th class="num">Sortie</th><th class="num">Stock après</th>
+        <th class="num masquer-mobile">Valeur ({{ DEVISE }})</th><th class="masquer-mobile">Par</th>
+      </tr></thead>
+      <tbody>
+      {% for m in page %}
+        <tr{% if m.annule %} class="ligne-annulee"{% endif %}>
+          <td class="k-date"><span class="sans-coupure">{{ m.date|date:"d/m/Y H:i" }}</span><div class="petit sans-coupure">{% if m.lien %}<a href="{{ m.lien }}">{{ m.reference }}</a>{% else %}{{ m.reference }}{% endif %}</div></td>
+          <td class="k-operation"><span class="badge {% if m.type == 'ENTREE' or m.type == 'RETOUR' %}badge-ok{% elif m.type == 'SORTIE' %}badge-warn{% elif m.type == 'ANNULATION' %}badge-danger{% else %}badge-gris{% endif %}">{{ m.get_type_display }}</span>{% if m.detail %}<div class="muted petit">{{ m.detail }}</div>{% endif %}{% if m.annule %}<div class="mention-annule petit">bon annulé</div>{% endif %}</td>
+          <td class="num k-qte k-entree sans-coupure qte-plus">{% if m.entree %}+{{ m.entree|qte }}{% endif %}</td>
+          <td class="num k-qte k-sortie sans-coupure qte-moins">{% if m.sortie %}−{{ m.sortie|qte }}{% endif %}</td>
+          <td class="num k-stock sans-coupure"><span class="seulement-telephone muted">stock </span><b>{{ m.stock_apres|qte }}</b></td>
+          <td class="num masquer-mobile sans-coupure">{{ m.valeur|montant }}</td>
+          <td class="masquer-mobile petit">{% if m.utilisateur %}{{ m.utilisateur.get_full_name|default:m.utilisateur.get_username }}{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="vide">Aucun mouvement{% if du or au %} sur cette période{% else %} pour cet article : son stock n'a encore jamais changé{% endif %}.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% include 'stock/_pagination.html' with quoi='mouvements' %}
+</main>
+{% endblock %}

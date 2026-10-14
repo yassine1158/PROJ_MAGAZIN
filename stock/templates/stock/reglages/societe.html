@@ -46,6 +46,13 @@
     </div>
     <div class="boutons-bas"><button class="btn btn-vert btn-grand">{% icone 'valider' %} Enregistrer</button></div>
   </form>
+  {% if parametres.premiers_pas_masques %}
+  <form method="post" action="{% url 'stock:premiers_pas' %}" class="carte carte-pad guide-masque">{% csrf_token %}
+    <input type="hidden" name="afficher" value="1">
+    <span>Le guide « Bien démarrer » est masqué sur l'accueil.</span>
+    <button class="btn">Le réafficher</button>
+  </form>
+  {% endif %}
   {% if request.user.is_superuser %}<p class="muted petit" style="margin-top:30px">Pour les cas particuliers : <a href="{% url 'admin:index' %}">réglages avancés</a>.</p>{% endif %}
 </main>
 {% endblock %}

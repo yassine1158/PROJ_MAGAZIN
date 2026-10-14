@@ -7,9 +7,9 @@ import math
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, Q
 
-from .models import Bloc, Element, Etagere, Mur
+from .models import Article, Bloc, Element, Etagere, Mur
 
 # Objets que l'on peut poser sur le plan. « mural » : se colle à un mur et y ouvre un passage dans la 3D.
 # Tailles en mètres (largeur × profondeur × hauteur). « allege » : hauteur du bas de la fenêtre.
@@ -34,9 +34,22 @@ TYPES_ELEMENTS = {
 CENTIEME = Decimal('0.01')
 
 
+def articles_par_niveau():
+    """{id d'étagère: [nb au niveau 1, nb au niveau 2, …]} pour les articles rangés à un niveau précis."""
+    rangs = Article.objects.filter(etagere__isnull=False, niveau__gt=0)
+    resultat = {}
+    for pk, niveau, n in rangs.order_by().values_list('etagere_id', 'niveau').annotate(n=Count('id')):
+        liste = resultat.setdefault(pk, [])
+        liste.extend([0] * (niveau - len(liste)))
+        liste[niveau - 1] = n
+    return resultat
+
+
 def plan_json():
     blocs = Bloc.objects.prefetch_related('etageres').order_by('code')
     articles = dict(Etagere.objects.annotate(n=Count('articles')).values_list('pk', 'n'))
+    actifs = dict(Etagere.objects.annotate(n=Count('articles', filter=Q(articles__actif=True))).values_list('pk', 'n'))
+    par_niveau = articles_par_niveau()
     return {
         'blocs': [
             {
@@ -47,7 +60,8 @@ def plan_json():
                         'id': e.pk, 'code': e.code, 'x': float(e.x), 'z': float(e.z),
                         'largeur': float(e.largeur), 'profondeur': float(e.profondeur),
                         'hauteur': float(e.hauteur), 'niveaux': e.nb_niveaux, 'tournee': e.tournee,
-                        'articles': articles.get(e.pk, 0),
+                        'articles': articles.get(e.pk, 0), 'actifs': actifs.get(e.pk, 0),
+                        'par_niveau': par_niveau.get(e.pk, []),
                     }
                     for e in b.etageres.all()
                 ],
@@ -69,15 +83,46 @@ def plan_json():
 
 
 class PlanInvalide(Exception):
-    def __init__(self, erreurs):
+    """Plan refusé. « cibles » : clés (côté éditeur) des blocs ou étagères en cause, pour les montrer."""
+    def __init__(self, erreurs, cibles=None):
         super().__init__('; '.join(erreurs))
         self.erreurs = erreurs
+        self.cibles = cibles or []
+
+
+def _liste(donnees, nom, erreurs):
+    valeur = donnees.get(nom)
+    if valeur is None:
+        return []
+    if not isinstance(valeur, list) or not all(isinstance(o, dict) for o in valeur):
+        erreurs.append(f'Données illisibles : « {nom} » n\'est pas une liste d\'objets.')
+        return []
+    return valeur
+
+
+def _id(valeur, nom, erreurs):
+    """Numéro d'un objet déjà enregistré ; None pour un objet nouveau."""
+    if not valeur:
+        return None
+    try:
+        return int(valeur)
+    except (TypeError, ValueError, OverflowError):
+        erreurs.append(f'{nom} : identifiant invalide (« {str(valeur)[:20]} »).')
+        return None
+
+
+def _ids(objets, nom, erreurs):
+    ids = [_id(o.get('id'), nom, erreurs) for o in objets]
+    connus = [i for i in ids if i is not None]
+    if len(connus) != len(set(connus)):
+        erreurs.append(f'{nom} : le même objet est envoyé deux fois.')
+    return ids
 
 
 def _nombre(valeur, nom, erreurs, mini=None, maxi=10000):
     try:
         n = float(valeur)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         erreurs.append(f'{nom} : nombre invalide.')
         return Decimal('0')
     if not math.isfinite(n) or (mini is not None and n < mini) or abs(n) > maxi:
@@ -102,60 +147,84 @@ def enregistrer(donnees):
 
     donnees = {
       'blocs':    [{'cle', 'id'?, 'code', 'nom', 'couleur', 'x', 'z', 'largeur', 'profondeur'}],
-      'etageres': [{'id'?, 'bloc' (cle du bloc), 'code', 'x', 'z', 'largeur', 'profondeur', 'hauteur',
+      'etageres': [{'cle', 'id'?, 'bloc' (cle du bloc), 'code', 'x', 'z', 'largeur', 'profondeur', 'hauteur',
                     'niveaux', 'tournee'}],        ← positions absolues
       'murs':     [{'id'?, 'x1', 'z1', 'x2', 'z2', 'epaisseur', 'hauteur', 'couleur'}],
       'elements': [{'type', 'nom', 'x', 'z' (centre), 'largeur', 'profondeur', 'hauteur', 'rotation', 'couleur'}],
     }
     """
-    erreurs = []
-    blocs_in = donnees.get('blocs') or []
-    etageres_in = donnees.get('etageres') or []
-    murs_in = donnees.get('murs') or []
-    elements_in = donnees.get('elements') or []
+    if not isinstance(donnees, dict):
+        raise PlanInvalide(['Données illisibles : le plan envoyé n\'est pas valide.'])
+    erreurs, cibles = [], []
+    blocs_in = _liste(donnees, 'blocs', erreurs)
+    etageres_in = _liste(donnees, 'etageres', erreurs)
+    murs_in = _liste(donnees, 'murs', erreurs)
+    elements_in = _liste(donnees, 'elements', erreurs)
+    if erreurs:
+        raise PlanInvalide(erreurs)
+    ids_blocs = _ids(blocs_in, 'Bloc', erreurs)
+    ids_etageres = _ids(etageres_in, 'Étagère', erreurs)
+    ids_murs = _ids(murs_in, 'Mur', erreurs)
 
     # --- Contrôles -------------------------------------------------------
-    codes_blocs = {}
+    codes_blocs = set()
     for b in blocs_in:
         code = _texte(b.get('code'), 10)
         if not code:
             erreurs.append('Un bloc n\'a pas de code.')
         elif code.lower() in codes_blocs:
             erreurs.append(f'Deux blocs ont le même code « {code} ».')
-        codes_blocs[code.lower()] = b
+        elif code.startswith('~'):
+            erreurs.append(f'Bloc « {code} » : un code ne peut pas commencer par « ~ ».')
+        else:
+            codes_blocs.add(code.lower())
+            continue
+        cibles.append(str(b.get('cle')))
     cles = {str(b.get('cle')) for b in blocs_in}
     codes_etageres = set()
-    for e in etageres_in:
+    rangs = articles_par_niveau()
+    anciens_niveaux = dict(Etagere.objects.values_list('pk', 'nb_niveaux'))
+    for e, pk in zip(etageres_in, ids_etageres):
         code = _texte(e.get('code'), 20)
         bloc = str(e.get('bloc'))
+        nb = len(erreurs)
         if bloc not in cles:
             erreurs.append(f'L\'étagère « {code} » n\'est dans aucun bloc.')
         if not code:
             erreurs.append('Une étagère n\'a pas de code.')
         elif (bloc, code.lower()) in codes_etageres:
             erreurs.append(f'Deux étagères ont le même code « {code} » dans le même bloc.')
+        elif code.startswith('~'):
+            erreurs.append(f'Étagère « {code} » : un code ne peut pas commencer par « ~ ».')
         codes_etageres.add((bloc, code.lower()))
         try:
             niveaux = int(e.get('niveaux'))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             niveaux = 0
+        # Seule une réduction est refusée : un plan déjà incohérent (articles hors niveaux) reste enregistrable.
+        trop_hauts = sum(rangs.get(pk, [])[max(niveaux, 0):]) if niveaux < anciens_niveaux.get(pk, 0) else 0
         if not 1 <= niveaux <= 30:
             erreurs.append(f'Étagère « {code} » : le nombre de niveaux doit être entre 1 et 30.')
+        elif trop_hauts:
+            erreurs.append(f'Étagère {code} : {trop_hauts} article(s) au niveau {niveaux + 1} ou plus. '
+                           'Déplacez-les avant de réduire les niveaux.')
+        if len(erreurs) > nb:
+            cibles.append(str(e.get('cle') or (f'e{pk}' if pk else '')))
     for el in elements_in:
-        if el.get('type') not in TYPES_ELEMENTS:
-            erreurs.append(f'Objet inconnu : « {el.get("type")} ».')
+        if not isinstance(el.get('type'), str) or el['type'] not in TYPES_ELEMENTS:
+            erreurs.append(f'Objet inconnu : « {str(el.get("type"))[:30]} ».')
     if erreurs:
-        raise PlanInvalide(erreurs)
+        raise PlanInvalide(erreurs, [c for c in cibles if c])
 
     # --- Blocs -----------------------------------------------------------
     # Codes provisoires d'abord : on peut ainsi échanger des codes, ou réutiliser celui d'un bloc supprimé.
     existants = {b.pk: b for b in Bloc.objects.all()}
     for pk in existants:
         Bloc.objects.filter(pk=pk).update(code=f'~{pk}')
-    gardes = {int(b['id']) for b in blocs_in if b.get('id') and int(b['id']) in existants}
+    gardes = {pk for pk in ids_blocs if pk in existants}
     blocs = {}
-    for b in blocs_in:
-        bloc = existants[int(b['id'])] if b.get('id') and int(b['id']) in gardes else Bloc()
+    for b, pk in zip(blocs_in, ids_blocs):
+        bloc = existants[pk] if pk in gardes else Bloc()
         bloc.code = _texte(b.get('code'), 10)
         bloc.nom = _texte(b.get('nom'), 100)
         bloc.couleur = _couleur(b.get('couleur'), '#3b82f6')
@@ -171,9 +240,9 @@ def enregistrer(donnees):
     existantes = {e.pk: e for e in Etagere.objects.all()}
     for pk in existantes:
         Etagere.objects.filter(pk=pk).update(code=f'~{pk}')
-    gardees = {int(e['id']) for e in etageres_in if e.get('id') and int(e['id']) in existantes}
-    for e in etageres_in:
-        etagere = existantes[int(e['id'])] if e.get('id') and int(e['id']) in gardees else Etagere()
+    gardees = {pk for pk in ids_etageres if pk in existantes}
+    for e, pk in zip(etageres_in, ids_etageres):
+        etagere = existantes[pk] if pk in gardees else Etagere()
         bloc = blocs[str(e.get('bloc'))]
         etagere.bloc = bloc
         etagere.code = _texte(e.get('code'), 20)
@@ -192,10 +261,10 @@ def enregistrer(donnees):
 
     # --- Murs ------------------------------------------------------------
     existants_murs = {m.pk: m for m in Mur.objects.all()}
-    gardes_murs = {int(m['id']) for m in murs_in if m.get('id') and int(m['id']) in existants_murs}
+    gardes_murs = {pk for pk in ids_murs if pk in existants_murs}
     Mur.objects.exclude(pk__in=gardes_murs).delete()
-    for m in murs_in:
-        mur = existants_murs.get(int(m['id'])) if m.get('id') and int(m['id']) in gardes_murs else Mur()
+    for m, pk in zip(murs_in, ids_murs):
+        mur = existants_murs[pk] if pk in gardes_murs else Mur()
         for champ in ('x1', 'z1', 'x2', 'z2'):
             setattr(mur, champ, _nombre(m.get(champ), 'Mur', erreurs))
         mur.epaisseur = _nombre(m.get('epaisseur', 0.2), 'Mur, épaisseur', erreurs, mini=0.05, maxi=5)

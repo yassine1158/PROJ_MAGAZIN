@@ -6,51 +6,101 @@
   <div class="entete">
     <div>
       <h1>{% if filtre == 'alerte' %}À commander{% else %}Articles{% endif %}</h1>
-      <p>{{ articles|length }} article(s) · valeur {{ total }} {{ DEVISE }}</p>
+      <p>{{ page.paginator.count }} article{% if page.paginator.count > 1 %}s{% endif %} · valeur {{ total }} {{ DEVISE }}{% if filtre == 'alerte' %} · quantité suggérée : de quoi revenir à 2 × le seuil{% endif %}</p>
     </div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <a class="btn" href="?{{ request.GET.urlencode }}{% if request.GET %}&{% endif %}format=excel">{% icone 'excel' %} Excel</a>
-      <a class="btn btn-vert" href="{% url 'stock:article_nouveau' %}">{% icone 'plus' %} Nouvel article</a>
+    <div class="actions-rapport">
+      {% if filtre == 'alerte' %}
+        {% if page.paginator.count %}<a class="btn btn-vert" href="?{{ lien_pdf }}"{% if not BUREAU %} target="_blank"{% endif %} title="Liste à remettre à l'acheteur : quantités suggérées, dernier fournisseur et dernier prix">{% icone 'imprimer' %} Imprimer la liste</a>{% endif %}
+        <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+      {% else %}
+        <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+        {% if request.user.is_staff %}<a class="btn" href="{% url 'stock:etiquettes' %}{% if lien_etiquettes %}?{{ lien_etiquettes }}{% endif %}" title="Étiquettes à QR code des articles de cette liste">{% icone 'qr' %} Étiquettes</a>{% endif %}
+        {% if request.user.is_staff %}<a class="btn" href="{% url 'stock:import_articles' %}" title="Créer plusieurs articles d'un coup depuis un fichier Excel">{% icone 'entree' %} <span>Importer<span class="masquer-mobile"> depuis Excel</span></span></a>{% endif %}
+        <a class="btn btn-vert" href="{% url 'stock:article_nouveau' %}">{% icone 'plus' %} Nouvel article</a>
+      {% endif %}
     </div>
   </div>
 
-  <form method="get" class="carte carte-pad" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;padding:14px">
-    <input type="search" name="q" value="{{ q }}" placeholder="Code, nom, autre nom…" style="flex:2;min-width:200px">
-    <select name="categorie" style="flex:1;min-width:160px" onchange="this.form.submit()">
-      <option value="">Toutes les catégories</option>
-      {% for c in categories %}<option value="{{ c.pk }}" {% if categorie == c.pk|stringformat:'s' %}selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+  <form method="get" class="carte filtres-articles">
+    <div class="ligne-recherche">
+      <input type="search" name="q" value="{{ q }}" placeholder="Code, nom, autre nom…" aria-label="Rechercher un article">
+      <button class="btn btn-vert" aria-label="Chercher">{% icone 'recherche' %}<span class="masquer-mobile"> Chercher</span></button>
+    </div>
+    <select name="categorie" onchange="this.form.submit()" aria-label="Catégorie">
+      <option value="">Toutes catégories</option>
+      {% for c in categories %}<option value="{{ c.pk }}"{% if categorie.pk == c.pk %} selected{% endif %}>{{ c.nom }}</option>{% endfor %}
     </select>
-    <select name="filtre" style="flex:1;min-width:160px" onchange="this.form.submit()">
+    <select name="filtre" onchange="this.form.submit()" aria-label="État du stock">
       <option value="">Tous les articles</option>
-      <option value="alerte" {% if filtre == 'alerte' %}selected{% endif %}>À commander</option>
-      <option value="rupture" {% if filtre == 'rupture' %}selected{% endif %}>En rupture (0)</option>
-      <option value="inactifs" {% if filtre == 'inactifs' %}selected{% endif %}>Désactivés</option>
+      <option value="alerte"{% if filtre == 'alerte' %} selected{% endif %}>À commander</option>
+      <option value="rupture"{% if filtre == 'rupture' %} selected{% endif %}>En rupture (0)</option>
+      <option value="inactifs"{% if filtre == 'inactifs' %} selected{% endif %}>Désactivés</option>
     </select>
-    <button class="btn btn-vert">{% icone 'recherche' %} Chercher</button>
+    {% if blocs %}
+    <select name="bloc" onchange="if (this.form.etagere) this.form.etagere.value = ''; this.form.submit()" aria-label="Bloc">
+      <option value="">Tous les blocs</option>
+      {% for b in blocs %}<option value="{{ b.pk }}"{% if bloc.pk == b.pk %} selected{% endif %}>{{ b }}</option>{% endfor %}
+    </select>
+    {% endif %}
+    {% if bloc %}
+    <select name="etagere" onchange="this.form.submit()" aria-label="Étagère">
+      <option value="">Tout le bloc {{ bloc.code }}</option>
+      {% for e in etageres %}<option value="{{ e.pk }}"{% if etagere.pk == e.pk %} selected{% endif %}>Étagère {{ e.code }}</option>{% endfor %}
+    </select>
+    {% endif %}
   </form>
 
   <section class="carte table-wrap">
-    <table class="data">
-      <thead><tr><th></th><th>Article</th><th>Catégorie</th><th>Emplacement</th><th class="num">Stock</th><th class="num">Valeur</th><th></th></tr></thead>
+    <table class="data liste-articles">
+      <thead><tr>
+        <th class="masquer-mobile"></th><th>Article</th><th class="masquer-mobile">Catégorie</th><th class="masquer-mobile">Emplacement</th>
+        <th class="num">Stock</th>{% if filtre == 'alerte' %}<th class="num">À commander</th>{% endif %}<th class="num masquer-mobile">Valeur</th><th class="masquer-mobile"></th>
+      </tr></thead>
       <tbody>
       {% for a in articles %}
         <tr>
-          <td style="width:56px">{% if a.photo %}<img class="vignette-mini" src="{{ a.photo.url }}" alt="">{% else %}<div class="vignette-mini"></div>{% endif %}</td>
-          <td><a href="{% url 'stock:article_modifier' a.pk %}"><b>{{ a.designation }}</b></a><div class="muted petit">{{ a.code }}</div></td>
-          <td>{{ a.categorie }}</td>
-          <td>{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}" title="Voir en 3D">{% icone 'cube' %} {{ a.emplacement }}</a>{% else %}<span class="muted">Non rangé</span>{% endif %}</td>
+          <td class="masquer-mobile" style="width:56px">{% if a.photo %}<img class="vignette-mini" src="{{ a.photo.url }}" alt="" loading="lazy">{% else %}<div class="vignette-mini"></div>{% endif %}</td>
+          <td><a href="{% url 'stock:article_modifier' a.pk %}"><b>{{ a.designation }}</b></a><div class="muted petit">{{ a.code }}<span class="seulement-telephone"> · {% if a.etagere_id %}{{ a.etagere.bloc.code }} › {{ a.etagere.code }}{% if a.niveau %} › niv. {{ a.niveau }}{% endif %}{% else %}non rangé{% endif %}</span></div></td>
+          <td class="masquer-mobile">{{ a.categorie }}</td>
+          <td class="masquer-mobile">{% if a.etagere_id %}<a href="{% url 'stock:recherche' %}?article={{ a.pk }}" title="Voir en 3D">{% icone 'cube' %} {{ a.emplacement }}</a>{% else %}<span class="muted">Non rangé</span>{% endif %}</td>
           <td class="num">
-            <span class="badge {% if a.stock <= 0 %}badge-danger{% elif a.en_alerte %}badge-warn{% else %}badge-ok{% endif %}">{{ a.stock|qte }} {{ a.unite }}</span>
-            {% if a.en_alerte %}<div class="muted petit">min {{ a.stock_min|qte }}</div>{% endif %}
+            <a href="{% url 'stock:article_historique' a.pk %}" title="Fiche de stock : entrées et sorties"><span class="badge {% if a.stock <= 0 %}badge-danger{% elif a.en_alerte %}badge-warn{% else %}badge-ok{% endif %}">{{ a.stock|qte }} {{ a.unite }}</span></a>
+            {% if a.en_alerte %}<div class="muted petit sans-coupure">min {{ a.stock_min|qte }}</div>{% endif %}
           </td>
-          <td class="num">{{ a.valeur_stock|montant }}</td>
-          <td class="num"><a class="btn btn-icone" href="{% url 'stock:article_modifier' a.pk %}" title="Modifier">{% icone 'modifier' %}</a></td>
+          {% if filtre == 'alerte' %}<td class="num sans-coupure"><b>{{ a.a_commander|qte }}</b> <span class="muted petit masquer-mobile">{{ a.unite_commande }}</span><span class="muted petit seulement-telephone">{{ a.unite }}</span></td>{% endif %}
+          <td class="num masquer-mobile sans-coupure">{{ a.valeur_stock|montant }}</td>
+          <td class="num masquer-mobile sans-coupure">
+            <a class="btn btn-icone" href="{% url 'stock:article_historique' a.pk %}" title="Fiche de stock">{% icone 'historique' %}</a>
+            <a class="btn btn-icone" href="{% url 'stock:article_modifier' a.pk %}" title="Modifier">{% icone 'modifier' %}</a>
+          </td>
         </tr>
       {% empty %}
-        <tr><td colspan="7" class="vide">Aucun article. <a href="{% url 'stock:article_nouveau' %}">Ajouter le premier</a></td></tr>
+        <tr><td colspan="8" class="vide">
+          {% if catalogue_vide %}
+            <b>Aucun article pour l'instant.</b><br>Ajoutez les articles de votre magasin pour suivre leur stock.
+            {% if request.user.is_staff %}<br>Votre liste existe déjà dans Excel ? Importez-la en une fois, avec le stock de départ.{% endif %}
+            <div class="actions-vide">
+              {% if request.user.is_staff %}<a class="btn btn-vert" href="{% url 'stock:import_articles' %}">{% icone 'entree' %} Importer depuis Excel</a>
+              <a class="btn" href="{% url 'stock:import_modele' %}">{% icone 'excel' %} Télécharger le modèle</a>{% endif %}
+              <a class="btn{% if not request.user.is_staff %} btn-vert{% endif %}" href="{% url 'stock:article_nouveau' %}">{% icone 'plus' %} Nouvel article</a>
+            </div>
+          {% elif q %}
+            Aucun article ne correspond à « {{ q }} »{% if filtre_actif %} avec ces filtres{% endif %}.
+            <div class="actions-vide">
+              <a class="btn" href="?{{ lien_sans_recherche }}">{% icone 'annuler' %} Effacer la recherche</a>
+              <a class="btn btn-vert" href="{% url 'stock:article_nouveau' %}">{% icone 'plus' %} Nouvel article</a>
+            </div>
+          {% elif filtre == 'alerte' %}
+            Rien à commander : tous les articles sont au-dessus de leur seuil d'alerte.
+          {% else %}
+            Aucun article avec ces filtres.
+            <div class="actions-vide"><a class="btn" href="?{{ lien_sans_filtres }}">Voir tous les articles</a></div>
+          {% endif %}
+        </td></tr>
       {% endfor %}
       </tbody>
     </table>
   </section>
+  {% include 'stock/_pagination.html' with quoi='articles' %}
 </main>
 {% endblock %}

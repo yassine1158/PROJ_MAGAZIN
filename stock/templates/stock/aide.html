@@ -1,0 +1,248 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Aide{% endblock %}
+{% block contenu %}
+<main class="page page-aide">
+  <div class="entete"><div><h1>Aide</h1><p>Comment utiliser {{ PRODUIT }}, en quelques mots.</p></div></div>
+
+  <section class="carte carte-pad version-logiciel aide-haut" id="version">
+    <div class="ligne-version">
+      <div>
+        <h2>Version du logiciel</h2>
+        <p>Version installée : <b>{{ PRODUIT }} {{ PRODUIT_VERSION }}</b>
+          {% if version.disponible %}<span class="badge badge-warn">Nouvelle version {{ version.disponible.version }} disponible</span>
+          {% elif version.verifie_le %}<span class="badge badge-ok">À jour</span>{% endif %}</p>
+        {% if version %}<p class="muted petit">{% if version.verifie_le %}Dernière vérification : le {{ version.verifie_le|date:"d/m/Y" }} à {{ version.verifie_le|date:"H:i" }}. {% endif %}Le logiciel vérifie lui-même une fois par jour, quand l'ordinateur est connecté à internet.</p>{% endif %}
+      </div>
+      <div class="actions-version">
+        {% if whatsapp %}<a class="btn btn-vert" href="{{ whatsapp }}" target="_blank" rel="noopener">{% icone 'telephone' %} Écrire à l'assistance sur WhatsApp</a>{% endif %}
+        {% if site %}<a class="btn" href="{{ site }}" target="_blank" rel="noopener">{% icone 'accueil' %} Site</a>{% endif %}
+        {% if version %}
+          {% if version.disponible and BUREAU %}
+            <a class="btn btn-vert" href="{{ version.disponible.url }}" target="_blank" rel="noopener">{% icone 'entree' %} Télécharger la version {{ version.disponible.version }}</a>
+          {% endif %}
+          <form method="post" action="{% url 'stock:mise_a_jour_verifier' %}">{% csrf_token %}
+            <button class="btn">{% icone 'historique' %} Vérifier les mises à jour</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    {% if version.erreur %}
+      <div class="message message-warning">{% icone 'alerte' %}<div>Vérification impossible le {{ version.essai_le|date:"d/m/Y" }} à {{ version.essai_le|date:"H:i" }}. {{ version.erreur }}</div></div>
+    {% endif %}
+    {% if version.disponible %}
+      {% if BUREAU %}
+        <ol class="etapes-maj petit">
+          <li>Cliquez sur « Télécharger la version {{ version.disponible.version }} », puis ouvrez le fichier téléchargé.</li>
+          <li>Si Windows affiche « Windows a protégé votre ordinateur » : cliquez sur « Informations complémentaires », puis sur « Exécuter quand même ».</li>
+          <li>L'installateur vous demande de fermer le logiciel, puis : Suivant › Installer. Vos données sont gardées (une sauvegarde est faite juste avant).</li>
+        </ol>
+      {% else %}
+        <p class="petit">Pour installer la nouvelle version, ouvrez cette page sur l'ordinateur où le logiciel est installé.</p>
+      {% endif %}
+      {% if version.disponible.notes %}<div class="notes-version"><b>Nouveautés</b><br>{{ version.disponible.notes|linebreaksbr }}</div>{% endif %}
+    {% endif %}
+    {% if contacts %}
+      <p class="contacts-aide petit">Assistance :
+        {% for c in contacts %}<span><span class="muted">{{ c.nom }}</span> <a href="{{ c.lien }}" target="_blank" rel="noopener">{{ c.texte }}</a></span>{% endfor %}
+      </p>
+    {% endif %}
+  </section>
+
+  {% if dossier %}
+  <section class="carte carte-pad aide-assistance" id="assistance">
+    <h2>Pour l'assistance</h2>
+    <div class="sauvegarde-lieux">
+      <div>
+        <div class="muted petit">Dossier des données (base, photos, sauvegardes, journal des erreurs)</div>
+        <div class="chemin">{{ dossier }}</div>
+      </div>
+      {% if BUREAU %}
+      <form method="post" action="{% url 'stock:aide_dossier' %}">{% csrf_token %}
+        <button class="btn">Ouvrir le dossier</button>
+      </form>
+      {% endif %}
+    </div>
+    <div class="ligne-rapport">
+      <p class="muted petit">En cas de problème, préparez un rapport et envoyez-le à l'assistance (WhatsApp ou e-mail). Il contient la version, le journal des erreurs et le nombre d'articles : ni vos bons, ni vos mots de passe.</p>
+      <form method="post" action="{% url 'stock:aide_rapport' %}">{% csrf_token %}
+        <button class="btn">{% icone 'sauvegarde' %} Préparer un rapport pour l'assistance</button>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+
+  <nav class="carte carte-pad sommaire-aide" aria-label="Sommaire">
+    <a href="#premiers-pas">Premiers pas</a>
+    <a href="#trouver">Trouver un article</a>
+    <a href="#entree">Entrée de stock</a>
+    <a href="#sortie">Sortie de stock</a>
+    <a href="#retour">Retour de chantier</a>
+    <a href="#annuler">Annuler un bon</a>
+    <a href="#corriger">Corriger un stock</a>
+    <a href="#inventaire">Inventaire</a>
+    <a href="#import">Import Excel</a>
+    <a href="#etiquettes">Étiquettes</a>
+    <a href="#utilisateurs">Utilisateurs</a>
+    <a href="#sauvegarde">Sauvegardes</a>
+    <a href="#telephones">Téléphones</a>
+    <a href="#mises-a-jour">Mises à jour</a>
+    <a href="#licence">Licence</a>
+  </nav>
+
+  <section class="carte carte-pad rubrique-aide" id="premiers-pas">
+    <h2>Premiers pas</h2>
+    <ol>
+      <li>Si le bandeau <b>« Magasin d'exemple »</b> est affiché, les articles sont fictifs : essayez le logiciel, puis cliquez sur <b>« Effacer l'exemple et commencer »</b>.</li>
+      <li><b>Réglages › Ma société</b> : nom, logo et couleur de votre société (imprimés sur les bons).</li>
+      <li><b>Réglages › Plan du magasin</b> : dessinez les blocs (zones) et leurs étagères. C'est ce plan qui s'affiche en 3D.</li>
+      <li><b>Articles › Nouvel article</b> : code, désignation, unité, étagère et niveau. Le <b>stock de départ</b> est la quantité déjà présente aujourd'hui, avec son prix d'achat.</li>
+      <li><b>Réglages › Utilisateurs</b> : un compte pour chaque magasinier.</li>
+    </ol>
+    <p class="muted petit">Les réglages sont visibles seulement par les responsables.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="trouver">
+    <h2>Trouver un article</h2>
+    <ul>
+      <li>Menu <b>« Trouver un article »</b> : tapez un nom, un code ou un mot (par exemple « filtre huile »). Le logiciel montre le bloc, l'étagère et le niveau, en 3D.</li>
+      <li>Si la recherche IA est activée, écrivez comme vous parlez, ou prenez une photo de la pièce avec le bouton appareil photo.</li>
+      <li>La page <b>Articles</b> a aussi une case de recherche (code, désignation, référence).</li>
+    </ul>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="entree">
+    <h2>Entrée de stock (marchandise reçue)</h2>
+    <ol>
+      <li>Menu <b>« Entrée de stock »</b>.</li>
+      <li>Fournisseur (facultatif) et numéro du bon de livraison ou de la facture.</li>
+      <li><b>« Ajouter un article »</b> : tapez quelques lettres du nom ou du code, puis <b>choisissez l'article dans la liste</b>. Indiquez la quantité et le prix unitaire.</li>
+      <li><b>« Enregistrer l'entrée »</b> : le stock augmente tout de suite. Le bon reçoit un numéro ; le bouton <b>« Imprimer »</b> donne le PDF.</li>
+    </ol>
+    <p class="muted petit">Un article qui n'existe pas encore doit d'abord être créé : Articles › Nouvel article.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="sortie">
+    <h2>Sortie de stock (marchandise donnée)</h2>
+    <ol>
+      <li>Menu <b>« Sortie de stock »</b>.</li>
+      <li>Le <b>chantier</b> (obligatoire), l'engin ou le camion (facultatif), et <b>« Reçu par »</b> : la personne qui prend la marchandise.</li>
+      <li>Ajoutez les articles et les quantités. Le stock disponible s'affiche sous chaque ligne.</li>
+      <li><b>« Enregistrer la sortie »</b> : le stock diminue tout de suite. Imprimez le bon et faites-le signer.</li>
+    </ol>
+    <p class="muted petit">S'il n'y a pas assez de stock, la sortie est refusée et le logiciel indique l'article concerné.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="retour">
+    <h2>Retour de chantier (marchandise non utilisée)</h2>
+    <ol>
+      <li>Menu <b>« Retour de chantier »</b>, ou depuis un bon de sortie : bouton <b>« Retour de ce bon »</b> (les articles sont déjà remplis).</li>
+      <li>Le <b>chantier</b> d'où revient la marchandise et <b>« Rapporté par »</b> : la personne qui la ramène.</li>
+      <li>Tapez la quantité rapportée pour chaque article. Une ligne laissée vide n'est pas comptée.</li>
+      <li><b>« Enregistrer le retour »</b> : le stock remonte et la consommation du chantier baisse d'autant.</li>
+    </ol>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="annuler">
+    <h2>Annuler un bon (erreur de saisie)</h2>
+    <ol>
+      <li>Menu <b>« Historique des bons »</b>, puis ouvrez le bon.</li>
+      <li><b>« Annuler ce bon (erreur de saisie) »</b>, puis confirmez. Le stock est remis comme avant.</li>
+      <li>Refaites ensuite un bon correct.</li>
+    </ol>
+    <p class="muted petit">Un bon n'est jamais effacé : il reste dans l'historique, marqué « Annulé ». Si le bouton n'apparaît pas, demandez à un responsable.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="corriger">
+    <h2>Corriger le stock d'un article</h2>
+    <p>Après un comptage, si le stock du logiciel n'est pas le bon : <b>Articles</b>, ouvrez l'article, puis <b>« Corriger le stock »</b>. Indiquez la quantité réellement comptée et le motif, puis <b>« Corriger »</b>.</p>
+    <p class="muted petit">La correction est gardée dans l'historique de l'article. Si le bouton n'apparaît pas, demandez à un responsable.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="inventaire">
+    <h2>Inventaire</h2>
+    <p>Pour compter le magasin (fin de mois, fin d'année), en entier ou seulement un bloc ou une étagère :</p>
+    <ol>
+      <li>Menu <b>« Inventaire »</b>, puis <b>« Nouvel inventaire »</b> : choisissez ce qu'il faut compter, puis <b>« Créer l'inventaire »</b>.</li>
+      <li>Imprimez la <b>« Fiche de comptage »</b> pour noter les quantités à la main, ou comptez directement sur un téléphone (Réglages › Accès téléphones).</li>
+      <li>Saisissez les quantités comptées, puis <b>« Voir les écarts »</b> : le logiciel montre ce qui manque ou ce qui est en trop, et la valeur de l'écart.</li>
+      <li><b>« Valider : mettre le stock à jour »</b>. Le résultat peut être imprimé et reste dans la liste des inventaires.</li>
+    </ol>
+    <p class="muted petit">Évitez les entrées et les sorties pendant le comptage. Pour un seul article, utilisez « Corriger le stock » (ci-dessus).</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="import">
+    <h2>Importer vos articles depuis Excel</h2>
+    <p>Si la liste de vos articles est déjà dans un fichier Excel, le logiciel peut la reprendre : une ligne par article. Seule la désignation est obligatoire ; ajoutez si possible le code, l'unité, l'emplacement, le stock et le prix d'achat.</p>
+    <ol>
+      <li><b>Articles › Importer depuis Excel</b>. Si besoin, <b>« Télécharger le modèle Excel »</b> et recopiez-y vos articles.</li>
+      <li>Choisissez votre fichier, puis <b>« Voir l'aperçu »</b> : chaque ligne est contrôlée et les erreurs sont expliquées avant tout enregistrement.</li>
+      <li><b>« Importer »</b> : les articles sont créés avec leur stock de départ.</li>
+    </ol>
+    <p class="muted petit">Après l'import, vérifiez quelques articles dans la page Articles. Sans fichier, ajoutez les articles un par un : Articles › Nouvel article.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="etiquettes">
+    <h2>Étiquettes</h2>
+    <p>Une étiquette avec le code de l'article (ou de l'étagère) et un QR code, à coller sur l'étagère. Avec un téléphone, on scanne le QR code pour retrouver l'article et son emplacement.</p>
+    <p class="muted petit">Imprimez sur des planches d'étiquettes autocollantes ou sur du papier A4.</p>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="utilisateurs">
+    <h2>Utilisateurs</h2>
+    <ul>
+      <li><b>Réglages › Utilisateurs › « Nouveau compte »</b> (responsable). Deux rôles : <b>Magasinier</b> (entrées, sorties, articles) et <b>Responsable</b> (tout, y compris les réglages).</li>
+      <li>Chaque personne a son propre compte : on sait qui a fait chaque entrée et chaque sortie.</li>
+      <li>Mot de passe oublié : un responsable ouvre le compte et tape un nouveau mot de passe.</li>
+      <li>Quelqu'un quitte le magasin : décochez « Compte actif ». Ses bons restent dans l'historique.</li>
+    </ul>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="sauvegarde">
+    <h2>Sauvegardes</h2>
+    <ul>
+      <li>Une sauvegarde est faite <b>automatiquement chaque jour</b> à l'ouverture du logiciel, et avant chaque mise à jour.</li>
+      <li><b>Réglages › Sauvegarde</b> (responsable) : « Sauvegarder maintenant » et <b>« Copier sur la clé USB »</b>. Faites-le chaque semaine et rangez la clé hors du magasin : une copie sur le même ordinateur ne protège pas d'une panne ou d'un vol.</li>
+      <li>Nouvel ordinateur : installez le logiciel, puis Réglages › Sauvegarde › <b>« Restaurer une sauvegarde »</b> avec le fichier .zip de la clé USB.</li>
+    </ul>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="telephones">
+    <h2>Utiliser le logiciel sur un téléphone</h2>
+    {% if VERSION_BUREAU %}
+    <ol>
+      <li>Sur l'ordinateur : <b>Réglages › Accès téléphones</b> (responsable), puis <b>« Activer l'accès des téléphones »</b>.</li>
+      <li>Connectez le téléphone <b>au même Wi-Fi</b> que l'ordinateur (pas en données mobiles).</li>
+      <li>Scannez le QR code avec l'appareil photo, ou tapez l'adresse affichée. Chaque personne se connecte avec son compte.</li>
+    </ol>
+    <p class="muted petit">L'ordinateur doit rester allumé, avec le logiciel ouvert. Seulement sur le Wi-Fi du magasin, protégé par un mot de passe : jamais sur un Wi-Fi public. Sur le téléphone, les PDF et les fichiers Excel sont téléchargés sur le téléphone.</p>
+    {% else %}
+    <p>Ouvrez sur le téléphone la même adresse que sur l'ordinateur, puis connectez-vous avec votre compte.</p>
+    {% endif %}
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="mises-a-jour">
+    <h2>Mises à jour</h2>
+    <ul>
+      <li>Le logiciel vérifie lui-même chaque jour s'il existe une nouvelle version (quand l'ordinateur a internet). Si oui, un cadre <b>« Nouvelle version disponible »</b> apparaît dans le menu des responsables.</li>
+      <li>Cliquez sur <b>« Télécharger »</b>, puis ouvrez le fichier. Si Windows affiche « Windows a protégé votre ordinateur » : « Informations complémentaires », puis « Exécuter quand même ».</li>
+      <li>L'installateur demande de fermer le logiciel. Vos données sont gardées : une sauvegarde est faite juste avant.</li>
+      <li>Pour vérifier tout de suite : bouton <b>« Vérifier les mises à jour »</b> en haut de cette page (responsable, sur l'ordinateur).</li>
+    </ul>
+  </section>
+
+  <section class="carte carte-pad rubrique-aide" id="licence">
+    <h2>Licence</h2>
+    {% if licence %}
+    <ul>
+      <li>L'essai gratuit dure <b>{{ essai_jours }} jours</b>, avec tout le logiciel. Ensuite, une <b>clé d'activation</b> est demandée : {{ prix }}, payé une seule fois, pour un ordinateur.</li>
+      <li>Écran <a href="{% url 'stock:activation' %}"><b>Licence</b></a> (bandeau « Version d'essai » en haut, ou Réglages › Licence) : payez, envoyez le <b>code de cet ordinateur</b>, puis collez la clé reçue et cliquez sur « Activer ».</li>
+      <li>À la fin de l'essai, vos données sont conservées : rien n'est effacé.</li>
+      <li>Changement d'ordinateur : contactez le vendeur avec le code du nouvel ordinateur.</li>
+    </ul>
+    {% else %}
+    <p>Cette version n'a pas besoin de clé d'activation : tout le logiciel est disponible.</p>
+    {% endif %}
+  </section>
+</main>
+{% endblock %}

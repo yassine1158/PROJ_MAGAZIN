@@ -4,6 +4,8 @@ Une clé = « données . signature », en base64. Les données : client|code mac
 Elle est signée (Ed25519) avec la clé privée du vendeur, qui ne quitte jamais son ordinateur
 (outils/licences.py) ; le logiciel ne contient que la clé publique (config/produit.py).
 Si aucune clé publique n'est configurée, le verrouillage est désactivé.
+Le début de l'essai est gardé dans la base et dans des fichiers .essai (dossier de données, et sous Windows une
+copie commune à tous les comptes dans ProgramData) : le plus ancien compte.
 """
 import base64
 import hashlib
@@ -11,6 +13,7 @@ import platform
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 
 from django.conf import settings
 
@@ -89,6 +92,7 @@ class Etat:
     mode: str               # 'libre' (pas de verrouillage), 'essai', 'active', 'expire'
     jours_restants: int = 0
     client: str = ''
+    date_incorrecte: bool = False  # horloge de l'ordinateur reculée
 
     @property
     def bloque(self):
@@ -99,27 +103,77 @@ def _fichier(nom):
     return settings.DATA_DIR / nom
 
 
-def debut_essai():
-    """Date de début de l'essai : la plus ancienne connue (base et fichier), créée au premier appel."""
+def _aujourdhui():
+    return date.today()
+
+
+def _fichiers_essai():
+    """Fichier .essai du dossier de données, et sa copie commune à tous les comptes Windows (ProgramData)."""
+    fichiers = [_fichier('.essai')]
+    commun = getattr(settings, 'ESSAI_COMMUN', None)
+    if commun:
+        fichiers.append(Path(commun))
+    return fichiers
+
+
+def _lire_essai(fichier):
+    """(début, dernière date vue) d'un fichier .essai « début;dernière » ; l'ancien format n'a que le début."""
+    try:
+        parties = fichier.read_text().strip().split(';')
+    except (OSError, ValueError):
+        return None, None
+    dates = []
+    for texte in (parties + [''])[:2]:
+        try:
+            dates.append(date.fromisoformat(texte.strip()))
+        except ValueError:
+            dates.append(None)
+    return dates[0], dates[1]
+
+
+_ecriture_impossible = {}  # fichier → jour du dernier échec (un essai par jour suffit)
+
+
+@dataclass
+class Essai:
+    debut: date
+    jour: date              # jour de référence : jamais avant la dernière date vue
+    date_incorrecte: bool
+
+
+def _essai():
+    """Début de l'essai (le plus ancien connu : base et fichiers) et jour de référence.
+
+    Reculer l'horloge ne rend pas de jours d'essai : le jour de référence ne descend jamais sous la dernière
+    date vue. Les fichiers sont réécrits seulement quand leur contenu change, donc au plus une fois par jour.
+    """
     from .models import Parametres
 
+    aujourdhui = _aujourdhui()
     p = Parametres.actuels()
-    dates = [p.debut_essai] if p.debut_essai else []
-    try:
-        dates.append(date.fromisoformat(_fichier('.essai').read_text().strip()))
-    except (OSError, ValueError):
-        pass
-    debut = min(dates) if dates else date.today()
+    lus = {fichier: _lire_essai(fichier) for fichier in _fichiers_essai()}
+    debuts = [d for d in [p.debut_essai] + [debut for debut, _ in lus.values()] if d]
+    vues = [vue for _, vue in lus.values() if vue]
+    debut = min(debuts) if debuts else aujourdhui
+    vue = max(vues) if vues else None
+    jour = max(aujourdhui, vue) if vue else aujourdhui
     if p.debut_essai != debut:
         p.debut_essai = debut
         p.save()
-    try:
-        fichier = _fichier('.essai')
-        if not fichier.exists() or fichier.read_text().strip() != debut.isoformat():
-            fichier.write_text(debut.isoformat())
-    except OSError:
-        pass
-    return debut
+    for fichier, contenu in lus.items():
+        if contenu == (debut, jour) or _ecriture_impossible.get(fichier) == jour:
+            continue
+        try:
+            fichier.parent.mkdir(parents=True, exist_ok=True)
+            fichier.write_text(f'{debut.isoformat()};{jour.isoformat()}')
+        except OSError:  # copie commune créée par un autre compte Windows, disque protégé… : sans gravité
+            _ecriture_impossible[fichier] = jour
+    return Essai(debut, jour, bool(vue and (vue - aujourdhui).days > 1))
+
+
+def debut_essai():
+    """Date de début de l'essai : la plus ancienne connue, créée au premier appel."""
+    return _essai().debut
 
 
 def etat():
@@ -133,8 +187,11 @@ def etat():
             return Etat('active', client=lire_cle(cle).client)
         except ValueError:
             pass  # clé d'un autre ordinateur (base copiée) : retour à l'essai
-    restants = (debut_essai() + timedelta(days=produit.ESSAI_JOURS) - date.today()).days
-    return Etat('essai', jours_restants=max(0, restants)) if restants > 0 else Etat('expire')
+    essai = _essai()
+    restants = (essai.debut + timedelta(days=produit.ESSAI_JOURS) - essai.jour).days
+    if restants > 0:
+        return Etat('essai', jours_restants=min(restants, produit.ESSAI_JOURS), date_incorrecte=essai.date_incorrecte)
+    return Etat('expire', date_incorrecte=essai.date_incorrecte)
 
 
 def activer(texte):
@@ -148,7 +205,7 @@ def activer(texte):
     return cle
 
 
-CHEMINS_LIBRES = ('/activation/', '/static/', '/media/', '/connexion/', '/deconnexion/', '/bienvenue/')
+CHEMINS_LIBRES = ('/activation/', '/static/', '/media/', '/connexion/', '/deconnexion/', '/bienvenue/', '/aide/')
 
 
 class LicenceMiddleware:

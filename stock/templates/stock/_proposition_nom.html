@@ -1,0 +1,7 @@
+{% if p %}
+<div class="proposition-nom" id="proposition-{{ champ }}" data-nom="{{ p.nom }}">
+  <div><b>{{ titre }}</b>{% if p.proches %} Vouliez-vous dire :{% endif %}</div>
+  {% for nom in p.proches %}<button type="button" class="lien-proche" data-remplir="{{ champ }}" data-valeur="{{ nom }}">« {{ nom }} » ?</button>{% endfor %}
+  {% if case %}<label class="case-afficher"><input type="checkbox" name="creer_{{ champ }}" value="{{ p.nom }}"{% if p.coche %} checked{% endif %}> <span>{{ case }} : « {{ p.nom }} »</span></label>{% endif %}
+</div>
+{% endif %}

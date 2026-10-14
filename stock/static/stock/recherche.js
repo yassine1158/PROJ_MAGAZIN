@@ -69,7 +69,10 @@ async function charger3D() {
       import('./magasin3d.js'),
       fetch(cfg.apiPlan).then((rep) => rep.json()),
     ]);
-    vue = new Magasin3D($('vue3d'));
+    vue = new Magasin3D($('vue3d'), {
+      masques: () => [fiche, document.querySelector('#vue3d .outils3d')], // le cadrage évite la fiche et les boutons
+      lienEtagere: (e) => `${cfg.urlArticles}?etagere=${encodeURIComponent(e.id)}`,
+    });
     if (!vue.charger(plan)) $('plan-vide').style.display = 'grid';
     if (aMontrer) montrer3D(aMontrer);
   } catch (err) {
@@ -131,7 +134,7 @@ function selectionner(i, { defiler = false, visible = false, montrer = true } = 
     <div class="fiche-pied">${badgeStock(a)} <a href="${texte(a.url)}">Fiche article</a></div>
     ${a.photo ? `<img src="${texte(a.photo)}" alt="">` : ''}`;
   fiche.classList.add('visible');
-  if (montrer && !deja) montrer3D(a);
+  if (montrer && (!deja || defiler)) montrer3D(a); // toucher l'article déjà choisi y ramène la vue
   // Sur téléphone et tablette, la 3D est sous la liste : on y descend quand on touche un résultat.
   if (defiler && petitEcran.matches) $('vue3d').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }

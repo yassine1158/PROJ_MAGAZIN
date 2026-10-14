@@ -13,6 +13,7 @@ ICONES = {
     'recherche': '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
     'entree': '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 17v3h16v-3"/>',
     'sortie': '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 17v3h16v-3"/>',
+    'retour': '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/>',
     'articles': '<path d="m21 8-9-5-9 5 9 5 9-5Z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/>',
     'alerte': '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
     'rapport': '<path d="M3 3v18h18"/><path d="M8 17v-5"/><path d="M13 17V8"/><path d="M18 17v-3"/>',
@@ -38,12 +39,14 @@ ICONES = {
     'plus': '<path d="M12 5v14"/><path d="M5 12h14"/>',
     'poubelle': '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>',
     'imprimer': '<path d="M6 9V2h12v7"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v8H6z"/>',
+    'qr': '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h2v2h-2z"/><path d="M19 15h2"/><path d="M15 21h6v-2"/><path d="M12 3v6"/><path d="M12 12h9"/><path d="M12 12v9"/><path d="M3 12h5"/>',
     'modifier': '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     'menu': '<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>',
     'valider': '<path d="M20 6 9 17l-5-5"/>',
     'annuler': '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     'cube': '<path d="M21 16V8l-9-5-9 5v8l9 5 9-5Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
     'excel': '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6"/><path d="m9 13 6 6"/><path d="m15 13-6 6"/>',
+    'aide': '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.8.8c0 1.7-2.4 2.3-2.4 3.8"/><path d="M12 17h.01"/>',
 }
 
 

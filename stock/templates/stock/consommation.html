@@ -1,30 +1,72 @@
 {% extends 'stock/base.html' %}
 {% load magasin %}
-{% block titre %}Consommation par chantier{% endblock %}
+{% block titre %}Consommation{% endblock %}
 {% block contenu %}
-<main class="page">
-  <div class="entete"><div><h1>Consommation par chantier</h1><p>Sorties validées (moins les annulations), valorisées au prix moyen.</p></div></div>
-  <form method="get" class="carte carte-pad" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;padding:14px">
-    <label style="margin:0">Du</label> <input type="date" name="du" value="{{ du|date:'Y-m-d' }}" style="width:auto">
-    <label style="margin:0">au</label> <input type="date" name="au" value="{{ au|date:'Y-m-d' }}" style="width:auto">
-    <button class="btn btn-vert">Afficher</button>
-    <button class="btn" name="format" value="excel">{% icone 'excel' %} Excel (détail)</button>
-  </form>
-  {% for nom, c in chantiers.items %}
-  <section class="carte carte-pad" style="margin-bottom:16px">
-    <div style="display:flex;justify-content:space-between;align-items:baseline">
-      <h2 style="margin:0 0 10px;font-size:17px">{{ nom }}</h2>
-      <b>{{ c.total }} {{ DEVISE }}</b>
+<main class="page rapport">
+  <div class="entete">
+    <div>
+      <div class="seulement-impression muted">{{ NOM_AFFICHE }}</div>
+      <h1>Consommation {% if par == 'engin' %}par engin{% elif par == 'article' %}par article{% else %}par chantier{% endif %}</h1>
+      <p>Du {{ du|date:"d/m/Y" }} au {{ au|date:"d/m/Y" }}{% if chantier %} · {{ chantier.nom }}{% endif %} · sorties validées moins les retours, au prix moyen. Les bons annulés ne comptent pas.</p>
     </div>
+    <div class="actions-rapport no-print">
+      <a class="btn" href="?{{ lien_excel }}">{% icone 'excel' %} Excel</a>
+      <a class="btn" href="?{{ lien_pdf }}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} PDF</a>
+    </div>
+  </div>
+
+  <form method="get" class="carte filtres-rapport no-print">
+    <input type="hidden" name="par" value="{{ par }}">
+    <div class="raccourcis">
+      {% for r in raccourcis %}<a class="puce{% if r.actif %} actif{% endif %}" href="?{{ r.lien }}">{{ r.libelle }}</a>{% endfor %}
+    </div>
+    <div class="grille-filtres">
+      <div class="champ"><label for="du">Du</label><input type="date" id="du" name="du" value="{{ du|date:'Y-m-d' }}"></div>
+      <div class="champ"><label for="au">Au</label><input type="date" id="au" name="au" value="{{ au|date:'Y-m-d' }}"></div>
+      <div class="champ champ-large">
+        <label for="chantier">Chantier</label>
+        <select id="chantier" name="chantier">
+          <option value="">Tous les chantiers</option>
+          {% for c in chantiers %}<option value="{{ c.pk }}"{% if chantier.pk == c.pk %} selected{% endif %}>{{ c.nom }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="boutons"><button class="btn btn-vert">{% icone 'recherche' %} Afficher</button></div>
+    </div>
+  </form>
+
+  <nav class="onglets no-print" aria-label="Regrouper">
+    {% for o in onglets %}<a href="?{{ o.lien }}" class="{% if o.actif %}actif{% endif %}">{{ o.libelle }}</a>{% endfor %}
+  </nav>
+
+  <div class="kpis">
+    <div class="carte kpi"><div class="label">Total de la période ({{ DEVISE }})</div><div class="valeur">{{ total|montant }}</div></div>
+    {% if par != 'article' %}<div class="carte kpi"><div class="label">{% if par == 'engin' %}Engins{% else %}Chantiers{% endif %}</div><div class="valeur">{{ groupes|length }}</div></div>{% endif %}
+    <div class="carte kpi"><div class="label">Lignes d'articles</div><div class="valeur">{{ nb_lignes }}</div></div>
+  </div>
+
+  {% for g in groupes %}
+  <section class="carte carte-pad groupe-rapport">
+    {% if g.nom %}<div class="titre-groupe-rapport"><h2>{{ g.nom }}</h2><b>{{ g.total|montant }} {{ DEVISE }}</b></div>{% endif %}
     <div class="table-wrap"><table class="data">
-      <tr><th>Code</th><th>Désignation</th><th class="num">Quantité</th><th class="num">Valeur ({{ DEVISE }})</th></tr>
-      {% for l in c.lignes %}
-      <tr><td>{{ l.article__code }}</td><td>{{ l.article__designation }}</td><td class="num">{{ l.qte }} {{ l.article__unite }}</td><td class="num">{{ l.valeur_txt }}</td></tr>
+      <thead><tr><th>Article</th><th class="num">Quantité</th><th class="num">Valeur ({{ DEVISE }})</th></tr></thead>
+      <tbody>
+      {% for l in g.lignes %}
+        <tr>
+          <td><b>{{ l.designation }}</b><div class="muted petit">{{ l.code }}</div></td>
+          <td class="num">{{ l.qte|qte }} <span class="muted">{{ l.unite_qte }}</span></td>
+          <td class="num">{{ l.valeur|montant }}</td>
+        </tr>
       {% endfor %}
+      </tbody>
+      <tfoot><tr><td>{% if g.nom %}Sous-total{% else %}Total{% endif %}</td><td></td><td class="num">{{ g.total|montant }}</td></tr></tfoot>
     </table></div>
   </section>
   {% empty %}
-  <div class="carte carte-pad muted">Aucune sortie sur cette période.</div>
+  <div class="carte vide">Aucune sortie sur cette période.</div>
   {% endfor %}
+
+  {% if groupes|length > 1 %}
+  <div class="carte total-rapport"><span>Total général</span><span>{{ total|montant }} {{ DEVISE }}</span></div>
+  {% endif %}
 </main>
 {% endblock %}

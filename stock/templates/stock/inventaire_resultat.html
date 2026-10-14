@@ -1,0 +1,62 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Inventaire {{ bon.numero }}{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div>
+      <h1>{{ bon.perimetre|default:"Inventaire" }}</h1>
+      <p>
+        {% if bon.statut == 'VALIDE' %}<span class="badge badge-ok">Validé</span>{% else %}<span class="badge badge-danger">Annulé</span>{% endif %}
+        · {{ bon.numero }} · commencé le {{ bon.date|date:"d/m/Y" }}
+        {% if bon.date_validation %}· validé le {{ bon.date_validation|date:"d/m/Y à H:i" }}{% if bon.valide_par %} par {{ bon.valide_par.get_full_name|default:bon.valide_par.get_username }}{% endif %}{% endif %}
+      </p>
+    </div>
+    <div class="actions-bon">
+      {% if bon.statut == 'VALIDE' %}<a class="btn btn-vert" href="{% url 'stock:inventaire_resultat' bon.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Imprimer le résultat</a>{% endif %}
+      <a class="btn" href="{% url 'stock:inventaires' %}">Tous les inventaires</a>
+    </div>
+  </div>
+
+  {% if bon.statut == 'ANNULE' %}
+  <div class="message message-error">{% icone 'annuler' %}<div><b>Inventaire annulé</b>{% if bon.motif_annulation %} : {{ bon.motif_annulation }}{% endif %}. Le stock n'a pas changé.</div></div>
+  {% endif %}
+  {% if bon.observation %}<p class="muted">Remarque : {{ bon.observation }}</p>{% endif %}
+
+  <div class="kpis">
+    <div class="carte kpi"><div class="label">Articles comptés</div><div class="valeur">{{ nb_comptees }} <span class="muted petit">/ {{ nb_lignes }}</span></div></div>
+    <div class="carte kpi"><div class="label">Écarts corrigés</div><div class="valeur">{{ nb_ecarts }}</div></div>
+    <div class="carte kpi"><div class="label">Valeur des écarts</div><div class="valeur{% if valeur < 0 %} ecart-moins{% elif valeur > 0 %} ecart-plus{% endif %}">{% if valeur > 0 %}+{% endif %}{{ valeur|montant }} <span class="muted petit">{{ DEVISE }}</span></div></div>
+  </div>
+
+  {% if nb_ecarts %}
+  <nav class="onglets">
+    <a href="?" class="{% if not tous %}actif{% endif %}">Écarts ({{ nb_ecarts }})</a>
+    <a href="?tous=1" class="{% if tous %}actif{% endif %}">Tous les articles ({{ nb_lignes }})</a>
+  </nav>
+  {% else %}
+  <div class="message message-success">{% icone 'valider' %}<div>Aucun écart : le stock du logiciel correspondait au comptage.</div></div>
+  {% endif %}
+
+  <section class="carte table-wrap">
+    <table class="data table-ecarts">
+      <thead><tr><th>Article</th><th class="inv-empl">Emplacement</th><th class="num">Avant</th><th class="num">Compté</th><th class="num">Écart</th><th class="num">Valeur</th></tr></thead>
+      <tbody>
+      {% for l in lignes %}
+        <tr>
+          <td class="te-art"><a href="{% url 'stock:article_modifier' l.article.pk %}"><b>{{ l.article.designation }}</b></a><div class="muted petit">{{ l.article.code }}</div></td>
+          <td class="inv-empl">{{ l.article.emplacement|default:"—" }}</td>
+          <td class="num te-log"><span class="etiq-tel">Avant</span>{% if l.stock_theorique is not None %}{{ l.stock_theorique|qte }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="num te-cpt"><span class="etiq-tel">Compté</span>{% if l.stock_compte is not None %}{{ l.stock_compte|qte }} {{ l.article.unite }}{% else %}<span class="muted">non compté</span>{% endif %}</td>
+          <td class="num te-eca"><span class="etiq-tel">Écart</span>{% if l.ecart %}<b class="{% if l.ecart < 0 %}ecart-moins{% else %}ecart-plus{% endif %}">{% if l.ecart > 0 %}+{% endif %}{{ l.ecart|qte }}</b>{% elif l.ecart is not None %}<span class="muted">juste</span>{% elif l.stock_compte is not None and bon.statut == 'VALIDE' %}<span class="muted petit">recompté depuis</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="num te-val"><span class="etiq-tel">Valeur</span>{% if l.valeur %}{% if l.valeur > 0 %}+{% endif %}{{ l.valeur|montant }}{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+      {% if nb_ecarts %}
+      <tfoot><tr class="te-total"><td colspan="5" class="num"><b>Total des écarts</b></td><td class="num"><b>{% if valeur > 0 %}+{% endif %}{{ valeur|montant }} {{ DEVISE }}</b></td></tr></tfoot>
+      {% endif %}
+    </table>
+  </section>
+</main>
+{% endblock %}
