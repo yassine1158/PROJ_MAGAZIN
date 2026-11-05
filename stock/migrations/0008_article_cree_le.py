@@ -12,6 +12,8 @@ def dater_articles(apps, schema_editor):
     for article in articles:
         article.cree_le = premiers[article.pk]
     Article.objects.bulk_update(articles, ['cree_le'], batch_size=500)
+    # L'ajout du champ (auto_now_add) a daté tous les articles du moment de la mise à jour : on l'efface.
+    Article.objects.exclude(pk__in=list(premiers)).update(cree_le=None)
 
 
 class Migration(migrations.Migration):

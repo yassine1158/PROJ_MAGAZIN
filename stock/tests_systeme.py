@@ -21,7 +21,8 @@ from django.urls import reverse
 from config import produit
 
 from . import assistance, licence, mises_a_jour, reseau, sauvegarde, services
-from .models import Article, BonEntree, Categorie, LigneEntree, MouvementStock, Parametres
+from .models import (Article, BonEntree, BonRetour, BonSortie, Categorie, Inventaire, LigneEntree, LigneRetour,
+                     MouvementStock, Parametres)
 
 
 def base_minimale(chemin, marque='actuelle'):
@@ -408,6 +409,12 @@ class ViderDonneesTests(AvecDossier, TransactionTestCase):
         (self.dossier / 'media' / 'articles').mkdir(parents=True)
         (self.dossier / 'media' / 'articles' / 'filtre.jpg').write_bytes(b'photo')
         Article.objects.filter(code='FH-VOL-01').update(photo='articles/filtre.jpg')
+        # Un retour de chantier validé : ses lignes protègent l'article, le chantier et l'engin.
+        sortie = next(m for m in MouvementStock.objects.filter(type=MouvementStock.SORTIE, engin__isnull=False)
+                      if services.reste_sur_chantier(m.chantier_id, [m.article_id])[m.article_id] >= 1)
+        retour = BonRetour.objects.create(chantier=sortie.chantier, engin=sortie.engin, rapporte_par='Koffi')
+        LigneRetour.objects.create(bon=retour, article=sortie.article, quantite=1)
+        services.valider(retour, self.responsable)
 
     def test_vider_donnees(self):
         self.installer_exemple()
@@ -450,6 +457,36 @@ class ViderDonneesTests(AvecDossier, TransactionTestCase):
         self.client.post(reverse('stock:repartir_a_zero'), {'confirmation': 'EFFACER'})
         self.assertFalse(Article.objects.exists())
         self.assertEqual(Parametres.actuels().nom_societe, 'BTP Abidjan')
+
+    def test_tous_les_modeles_sont_effaces_dans_le_bon_ordre(self):
+        # Un nouveau modèle (comme les retours en 1.6.0) doit être dans la liste, avant ce qu'il protège.
+        from django.db.models import PROTECT
+        ordre = {nom: i for i, nom in enumerate(sauvegarde.MODELES_A_VIDER)}
+        for modele in apps.get_app_config('stock').get_models():
+            if modele is Parametres:
+                continue
+            self.assertIn(modele.__name__, ordre)
+            for champ in modele._meta.get_fields():
+                if champ.many_to_one and champ.remote_field.on_delete is PROTECT \
+                        and champ.related_model._meta.app_label == 'stock':
+                    self.assertLess(ordre[modele.__name__], ordre[champ.related_model.__name__],
+                                    f'{modele.__name__}.{champ.name}')
+
+    def test_retours_comptes_avant_effacement(self):
+        self.installer_exemple()
+        bons = BonEntree.objects.count() + BonSortie.objects.count() + Inventaire.objects.count()
+        self.assertEqual(sauvegarde.compter_donnees()['bons'], bons + 1)
+
+    def test_erreur_imprevue_pendant_l_effacement(self):
+        self.installer_exemple()
+        self.client.force_login(self.responsable)
+        with mock.patch.object(sauvegarde, 'sauvegarder', return_value=self.dossier / 'copie.zip'), \
+                mock.patch.object(sauvegarde, 'MODELES_A_VIDER', ['Article']), \
+                self.assertLogs('stock.sauvegarde', 'ERROR'):  # dans le journal, donc dans le rapport d'assistance
+            rep = self.client.post(reverse('stock:repartir_a_zero'), {'confirmation': 'EFFACER'}, follow=True)
+        self.assertEqual(rep.status_code, 200)
+        self.assertContains(rep, "Rien n&#x27;a été effacé")
+        self.assertTrue(Article.objects.exists())
 
     def test_rien_n_est_efface_si_la_sauvegarde_echoue(self):
         self.installer_exemple()
@@ -1517,6 +1554,40 @@ class LivrerTests(AvecDossier, TestCase):
         reponse['Content-Disposition'] = 'inline; filename="../../bon.pdf"'
         livrer(requete, reponse)
         self.assertEqual(self.ouvrir.call_args[0][0], self.documents / 'bon.pdf')
+
+    def test_modele_rempli_jamais_remplace(self):
+        from django.contrib.messages import get_messages
+
+        def telecharger():
+            rep = self.client.get(reverse('stock:import_modele'), HTTP_REFERER='/articles/importer/')
+            self.assertRedirects(rep, '/articles/importer/', fetch_redirect_response=False)
+            return ' '.join(str(m) for m in get_messages(rep.wsgi_request))
+
+        # Modèle déjà rempli et refermé (pas verrouillé) : il est gardé, le nouveau prend le nom suivant.
+        self.documents.mkdir(parents=True, exist_ok=True)
+        rempli = self.documents / 'modele_import_articles.xlsx'
+        rempli.write_bytes(b'rempli par le magasinier')
+        self.assertIn('Fichier ouvert', telecharger())
+        self.assertEqual(rempli.read_bytes(), b'rempli par le magasinier')
+        chemin = self.ouvrir.call_args[0][0]
+        self.assertEqual(chemin.name, 'modele_import_articles (2).xlsx')
+        self.assertTrue(chemin.read_bytes().startswith(b'PK'))
+        telecharger()
+        self.assertEqual(self.ouvrir.call_args[0][0].name, 'modele_import_articles (3).xlsx')
+        self.assertEqual(rempli.read_bytes(), b'rempli par le magasinier')
+        # Plus aucun nom libre : rien n'est écrasé, on prévient.
+        for n in range(4, 21):
+            (self.documents / f'modele_import_articles ({n}).xlsx').write_bytes(b'ancien')
+        self.ouvrir.reset_mock()
+        message = telecharger()
+        self.ouvrir.assert_not_called()
+        self.assertIn('Il y a déjà trop de fichiers modele_import_articles.xlsx', message)
+        self.assertEqual((self.documents / 'modele_import_articles (20).xlsx').read_bytes(), b'ancien')
+        # Les exports, eux, remplacent toujours le fichier du jour quand il est fermé.
+        (self.documents / self.nom).write_bytes(b'ancien export')
+        self.exporter()
+        self.assertEqual(self.ouvrir.call_args[0][0].name, self.nom)
+        self.assertTrue((self.documents / self.nom).read_bytes().startswith(b'PK'))
 
 
 @override_settings(BUREAU=True, ALLOWED_HOSTS=['*', 'testserver'])

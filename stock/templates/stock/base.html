@@ -30,6 +30,7 @@
       <a href="{% url 'stock:recherche' %}" class="{% if nom == 'recherche' %}actif{% endif %}">{% icone 'recherche' %} Trouver un article</a>
 
       <div class="titre-groupe">Mouvements</div>
+      <a href="{% url 'stock:demandes' %}" class="{% if nom == 'demandes' or nom == 'demande_detail' %}actif{% endif %}">{% icone 'demande' %} Demandes<span class="compteur compteur-demandes" data-compteur-demandes{% if not NB_DEMANDES %} hidden{% endif %}>{{ NB_DEMANDES }}</span></a>
       <a href="{% url 'stock:entree' %}" class="{% if nom == 'entree' %}actif{% endif %}">{% icone 'entree' %} Entrée de stock</a>
       <a href="{% url 'stock:sortie' %}" class="{% if nom == 'sortie' %}actif{% endif %}">{% icone 'sortie' %} Sortie de stock</a>
       <a href="{% url 'stock:retour' %}" class="{% if nom == 'retour' %}actif{% endif %}">{% icone 'retour' %} Retour de chantier</a>
@@ -110,7 +111,48 @@
   </div>
 </div>
 {% endwith %}
+<div class="alerte-demande" id="alerte-demande" role="status" aria-live="polite" hidden></div>
 <script>
+  // Demandes de pièces (QR code de l'atelier) : compteur du menu et alerte, sans recharger la page.
+  (() => {
+    const compteur = document.querySelector('[data-compteur-demandes]');
+    const alerte = document.getElementById('alerte-demande');
+    if (!compteur) return;
+    let vue = null;
+    const sonner = () => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.18].forEach((t) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(ctx.destination);
+          o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.12);
+        });
+      } catch (e) { /* pas de son : l'alerte suffit */ }
+    };
+    const verifier = () => fetch('{% url "stock:api_demandes" %}', {credentials: 'same-origin'})
+      .then((r) => (r.ok ? r.json() : null)).then((d) => {
+        if (!d) return;
+        compteur.textContent = d.en_attente;
+        compteur.hidden = !d.en_attente;
+        const id = d.derniere ? d.derniere.id : 0;
+        if (vue !== null && id > vue && d.derniere) {
+          const pieces = d.derniere.nb > 1 ? `${d.derniere.nb} pièces` : '1 pièce';
+          alerte.innerHTML = '';
+          const lien = document.createElement('a');
+          lien.href = d.derniere.url;
+          lien.textContent = `Nouvelle demande ${d.derniere.numero} : ${d.derniere.demandeur} (${pieces}) — Voir`;
+          const fermer = document.createElement('button');
+          fermer.type = 'button'; fermer.textContent = '×'; fermer.setAttribute('aria-label', 'Fermer');
+          fermer.onclick = () => { alerte.hidden = true; };
+          alerte.append(lien, fermer);
+          alerte.hidden = false;
+          sonner();
+        }
+        vue = Math.max(vue || 0, id);
+      }).catch(() => {});
+    verifier();
+    setInterval(verifier, 20000);
+  })();
   // Sur téléphone, un clic en dehors du menu le referme.
   document.addEventListener('click', (e) => {
     if (document.body.classList.contains('menu-ouvert') && !e.target.closest('.sidebar, .barre-mobile')) {

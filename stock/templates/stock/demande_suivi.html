@@ -1,0 +1,57 @@
+{% load static magasin %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demande {{ demande.numero }} · {{ NOM_AFFICHE }}</title>
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
+</head>
+<body class="page-demande">
+<main class="demande-mobile">
+  <header class="demande-entete">
+    <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+    <div>
+      <h1>Demande {{ demande.numero }}</h1>
+      <p>{{ demande.demandeur }} · {{ demande.date|date:"d/m/Y H:i" }}</p>
+    </div>
+  </header>
+
+  <section class="carte carte-pad etat-demande etat-{{ demande.statut|lower }}" id="etat" data-statut="{{ demande.statut }}">
+    {% if demande.statut == 'EN_ATTENTE' %}
+      <div class="etat-titre">{% icone 'historique' %} Envoyée, en attente du magasin</div>
+      <p>Gardez cette page ouverte : elle change toute seule dès que le magasin répond.</p>
+    {% elif demande.statut == 'VALIDEE' %}
+      <div class="etat-titre">{% icone 'valider' %} Validée : vos pièces sont prêtes au magasin</div>
+      {% if demande.sortie %}<p>Bon de sortie {{ demande.sortie.numero }}.</p>{% endif %}
+    {% else %}
+      <div class="etat-titre">{% icone 'annuler' %} Refusée</div>
+      <p>{{ demande.motif_refus }}</p>
+    {% endif %}
+  </section>
+
+  <section class="carte carte-pad">
+    <h2>Pièces demandées</h2>
+    <ul class="lignes-demande lecture">
+      {% for l in lignes %}
+      <li><div class="nom">{{ l.libelle }}{% if not l.article %} <span class="badge badge-warn">hors stock</span>{% endif %}</div>
+          <b>{{ l.quantite|qte }}</b></li>
+      {% endfor %}
+    </ul>
+    {% if demande.nom_chantier %}<p class="muted petit">Chantier : {{ demande.nom_chantier }}{% if demande.nom_engin %} · Engin : {{ demande.nom_engin }}{% endif %}</p>{% endif %}
+  </section>
+
+  <a class="btn btn-grand bouton-plein" href="{% url 'stock:demande' %}">{% icone 'plus' %} Nouvelle demande</a>
+</main>
+{% if demande.statut == 'EN_ATTENTE' %}
+<script>
+  setInterval(() => {
+    fetch('?format=json').then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (d && d.statut !== 'EN_ATTENTE') location.reload();
+    }).catch(() => {});
+  }, 10000);
+</script>
+{% endif %}
+</body>
+</html>

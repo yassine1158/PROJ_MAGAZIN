@@ -7,7 +7,8 @@ import os
 import re
 import uuid
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal
 from urllib.parse import unquote, urlencode
 
@@ -115,7 +116,12 @@ def api_articles(request):
     """Sélecteur d'article des bons, à chaque frappe : le code exact (douchette) en tête, puis une recherche en base ;
     la recherche tolérante (fautes, pluriels), plus lente, seulement quand la base trouve peu de chose et qu'aucun
     code ne correspond exactement. L'adresse d'une étiquette QR (douchette 2D) vaut son code."""
-    q = code_scanne(request.GET.get('q', '')).strip()[:100]
+    return JsonResponse({'articles': [_article_choix(a) for a in chercher_articles(request.GET.get('q', ''))]})
+
+
+def chercher_articles(q):
+    """Les 15 articles actifs qui répondent le mieux à ce qui est tapé (sélecteur des bons, demande de pièces)."""
+    q = code_scanne(q).strip()[:100]
     actifs = Article.objects.filter(actif=True).select_related('etagere__bloc')
     if q:
         articles = list(actifs.filter(code__iexact=q)[:1])
@@ -133,8 +139,8 @@ def api_articles(request):
             deja = {a.pk for a in articles}
             articles += [a for a in recherche_locale([q], limite=15) if a.pk not in deja][:15 - len(articles)]
     else:
-        articles = actifs[:15]
-    return JsonResponse({'articles': [_article_choix(a) for a in articles]})
+        articles = list(actifs[:15])
+    return articles
 
 
 @login_required
@@ -282,8 +288,8 @@ def _minuscule(texte):
 
 
 def _espaces(texte):
-    """« Chantier  Pont » → « Chantier Pont » : espaces en trop retirés."""
-    return ' '.join((texte or '').split())
+    """« Chantier  Pont » → « Chantier Pont » : espaces en trop et caractères de contrôle retirés."""
+    return ' '.join(re.sub(r'[\x00-\x08\x0e-\x1f\x7f]', '', texte or '').split())  # \t, \n… : espaces
 
 
 def _lire_lignes(request, avec_prix, vides_ignorees=False):
@@ -1042,6 +1048,7 @@ def import_confirmer(request):
             if not analyse.importables:
                 messages.error(request, 'Aucune ligne à importer : corrigez le fichier, puis envoyez-le de nouveau.')
                 return redirect('stock:import_apercu')
+            debut = timezone.now()  # « Imprimer leurs étiquettes » : seulement les articles créés à partir d'ici
             resultat = imports.importer(analyse, request.user,
                                         creer_emplacements=request.POST.get('emplacements') != 'non')
     except imports.ImportImpossible as e:
@@ -1059,8 +1066,7 @@ def import_confirmer(request):
         'bon': [resultat.bon.pk, resultat.bon.numero] if resultat.bon else None,
         'nb_lignes_bon': resultat.nb_lignes_bon, 'valeur': str(resultat.valeur_stock),
         'categories': resultat.categories, 'blocs': resultat.blocs, 'etageres': resultat.etageres,
-        'non_ranges': resultat.non_ranges, 'duree': round(resultat.duree, 2),
-        'jour': timezone.localdate().isoformat(),
+        'non_ranges': resultat.non_ranges, 'duree': round(resultat.duree, 2), 'apres': debut.isoformat(),
     }
     return redirect('stock:import_resultat')
 
@@ -1070,15 +1076,18 @@ def import_resultat(request):
     resultat = request.session.get('import_resultat')
     if not resultat:
         return redirect('stock:import_articles')
+    # Import fait avant la mise à jour : seule la date du jour avait été gardée.
+    filtre = {'apres': resultat['apres']} if resultat.get('apres') else {'depuis': resultat.get('jour', '')}
     return render(request, 'stock/import_articles.html', {
         'etape': 'resultat', 'resultat': resultat, 'valeur': Decimal(resultat['valeur']),
-        'lien_etiquettes': f"{reverse('stock:etiquettes')}?{urlencode({'depuis': resultat['jour']})}",
+        'lien_etiquettes': f"{reverse('stock:etiquettes')}?{urlencode(filtre)}",
     })
 
 
 @responsable
 def import_modele(request):
-    return livrer(request, imports.modele())
+    # Version bureau : un modèle déjà rempli dans Documents n'est jamais remplacé par un modèle vide.
+    return livrer(request, imports.modele(), remplacer=False)
 
 
 @responsable
@@ -1102,11 +1111,22 @@ LIMITE_CASES = 300  # au-delà, pas de cases à cocher : tous les articles trouv
 LIMITE_ETIQUETTES = 3000
 ORDRE_MAGASIN = [F('etagere__bloc__code').asc(nulls_last=True), F('etagere__code').asc(nulls_last=True),
                  F('niveau').asc(nulls_last=True), 'case', 'code']
-FILTRES_ETIQUETTES = ('q', 'categorie', 'bloc', 'etagere', 'depuis', 'article')
+FILTRES_ETIQUETTES = ('q', 'categorie', 'bloc', 'etagere', 'depuis', 'apres', 'article')
 
 
 def _identifiants(valeurs):
     return [int(v) for v in valeurs if v.isascii() and v.isdigit() and len(v) < 19]
+
+
+def _moment(texte):
+    """« 2026-10-14T09:30:00.123456+00:00 » (heure du début d'un import) → date et heure ; None si illisible."""
+    try:
+        moment = datetime.fromisoformat((texte or '').strip()[:40])
+        if timezone.is_naive(moment):
+            moment = timezone.make_aware(moment)
+        return moment.astimezone(dt_timezone.utc)  # année 1 ou 9999 avec un décalage : refusée ici, pas en base
+    except (ValueError, OverflowError):
+        return None
 
 
 def _entier(texte, defaut, mini, maxi):
@@ -1126,6 +1146,7 @@ def _filtres_etiquettes(params):
         'etagere': etagere,
         'bloc': etagere.bloc if etagere else rapports._objet(Bloc, params.get('bloc')),
         'depuis': rapports.lire_date(params.get('depuis'), None),
+        'apres': _moment(params.get('apres')),
         'articles': _identifiants(params.getlist('article'))[:LIMITE_CASES],
     }
     qs = Article.objects.filter(actif=True).select_related('categorie', 'etagere__bloc')
@@ -1139,6 +1160,8 @@ def _filtres_etiquettes(params):
         qs = qs.filter(etagere__bloc=choix['bloc'])
     if choix['depuis']:
         qs = qs.filter(cree_le__gte=rapports.debut(choix['depuis']))
+    if choix['apres']:  # articles créés par un import (lien « Imprimer leurs étiquettes »)
+        qs = qs.filter(cree_le__gte=choix['apres'])
     if choix['q']:
         qs = qs.filter(pk__in=_chercher_articles(qs, choix['q']))
     return choix, qs.order_by(*ORDRE_MAGASIN)
@@ -1199,7 +1222,7 @@ def etiquettes(request):
         lieu_petit=planches.texte_emplacement(exemple, 'a4-65') if exemple else '',
         qr_exemple=planches.qr_svg(planches.lien_article(base, exemple)) if exemple else '',
         pages=planches.nombre_pages(total, planches.FORMAT_DEFAUT),
-        filtre_actif=any(choix[cle] for cle in ('q', 'categorie', 'bloc', 'depuis', 'articles')),
+        filtre_actif=any(choix[cle] for cle in ('q', 'categorie', 'bloc', 'depuis', 'apres', 'articles')),
         lien_effacer=_lien_etiquettes(request.GET, **{cle: None for cle in FILTRES_ETIQUETTES}),
     )
     return render(request, 'stock/etiquettes.html', contexte)
@@ -1420,6 +1443,9 @@ def inventaire_compter(request, pk):
             except ValidationError as e:
                 erreurs[n] = e.messages[0]
                 continue
+            if compte == ligne.stock_compte:
+                faites[n] = ligne  # même quantité renvoyée (connexion perdue, page restée ouverte) : heure gardée
+                continue
             # Chaque saisie note l'heure du comptage : les entrées et sorties faites après seront reprises.
             ligne.stock_compte, ligne.compte_le = compte, (maintenant if compte is not None else None)
             ligne.save(update_fields=['stock_compte', 'compte_le'])
@@ -1470,8 +1496,12 @@ def inventaire_resultat(request, pk):
 
 
 def _empreinte(lignes):
-    """Résumé des quantités comptées : la validation est refusée si elles ont changé depuis le récapitulatif."""
-    texte = ';'.join(f'{l.pk}:{l.stock_compte}' for l in sorted(lignes, key=lambda l: l.pk))
+    """Résumé des comptages (quantité et heure) : validation refusée s'ils ont changé depuis le récapitulatif.
+
+    L'heure compte aussi : les mouvements faits après elle sont repris, donc le stock appliqué en dépend.
+    """
+    texte = ';'.join(f'{l.pk}:{l.stock_compte}:{l.compte_le.isoformat() if l.compte_le else ""}'
+                     for l in sorted(lignes, key=lambda l: l.pk))
     return hashlib.sha256(texte.encode()).hexdigest()[:20]
 
 

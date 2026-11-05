@@ -121,12 +121,18 @@ def total_sorties(du=None, au=None):
     return sorties_valorisees(du, au).aggregate(v=Sum(VALEUR_MVT))['v'] or Decimal('0')
 
 
+def _non_negligeable(valeur):
+    """Valeur consommée qui compte dans un rapport : au moins une unité de monnaie. Un retour rend la valeur de la
+    sortie ; s'il est valorisé au coût moyen de plusieurs sorties, il peut rester une fraction due à l'arrondi."""
+    return bool((valeur or Decimal('0')).quantize(Decimal('1')))
+
+
 def par_chantier(du=None, au=None):
     """[{'nom', 'valeur'}, …] du plus gros consommateur au plus petit."""
     lignes = (sorties_valorisees(du, au).values('chantier__nom').annotate(valeur=Sum(VALEUR_MVT))
               .order_by('-valeur', 'chantier__nom'))
     return [{'nom': l['chantier__nom'] or SANS['chantier'], 'valeur': l['valeur'] or Decimal('0')}
-            for l in lignes if l['valeur']]
+            for l in lignes if _non_negligeable(l['valeur'])]
 
 
 def _nom_groupe(par, ligne):
@@ -154,7 +160,7 @@ def consommation(du, au, par='chantier', chantier=None):
               .order_by(*cles, 'article__code'))
     groupes = {}
     for l in lignes:
-        if not l['qte'] and not l['valeur']:
+        if not l['qte'] and not _non_negligeable(l['valeur']):
             continue  # tout est revenu du chantier
         nom = _nom_groupe(par, l)
         groupe = groupes.setdefault(nom, {'nom': nom, 'lignes': [], 'total': Decimal('0')})

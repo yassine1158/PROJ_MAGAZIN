@@ -1,0 +1,55 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Demandes de pièces{% endblock %}
+{% block contenu %}
+<main class="page">
+  <div class="entete">
+    <div><h1>Demandes de pièces</h1>
+      <p>Envoyées depuis les téléphones de l'atelier (QR code affiché). Validez pour faire la sortie de stock et l'imprimer.</p></div>
+    {% if request.user.is_staff %}<a class="btn" href="{% url 'stock:demandes_affiche' %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'qr' %} Affiche QR code à imprimer</a>{% endif %}
+  </div>
+
+  <h2>En attente{% if attente %} ({{ attente|length }}){% endif %}</h2>
+  {% if attente %}
+  <div class="liste-demandes">
+    {% for d in attente %}
+    <a class="carte carte-pad demande-carte" href="{% url 'stock:demande_detail' d.pk %}">
+      <div class="demande-carte-haut">
+        <b>{{ d.demandeur }}</b>
+        <span class="badge badge-warn">En attente</span>
+      </div>
+      <div class="muted petit">{{ d.numero }} · {{ d.date|date:"d/m/Y H:i" }}{% if d.nom_chantier %} · {{ d.nom_chantier }}{% endif %}{% if d.nom_engin %} · {{ d.nom_engin }}{% endif %}</div>
+      <div class="demande-pieces">{% for l in d.lignes.all|slice:":4" %}{{ l.libelle }} × {{ l.quantite|qte }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if d.lignes.all|length > 4 %}…{% endif %}</div>
+      <span class="btn btn-vert">{% icone 'valider' %} Traiter</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="carte carte-pad vide">
+    <p><b>Aucune demande en attente.</b></p>
+    <p class="muted">Les demandes arrivent ici toutes seules, avec une alerte. Collez l'affiche du QR code à l'atelier :
+      les mécaniciens la scannent avec leur téléphone (connecté au Wi-Fi du magasin).</p>
+  </div>
+  {% endif %}
+
+  {% if traitees %}
+  <h2>Dernières demandes traitées</h2>
+  <div class="carte">
+    <table class="data">
+      <thead><tr><th>Demande</th><th>Demandé par</th><th>Chantier</th><th>État</th><th>Bon de sortie</th></tr></thead>
+      <tbody>
+      {% for d in traitees %}
+        <tr>
+          <td><a href="{% url 'stock:demande_detail' d.pk %}">{{ d.numero }}</a><div class="muted petit">{{ d.date|date:"d/m/Y H:i" }}</div></td>
+          <td>{{ d.demandeur }}</td>
+          <td>{{ d.nom_chantier|default:"—" }}</td>
+          <td>{% if d.statut == 'VALIDEE' %}<span class="badge badge-ok">Validée</span>{% else %}<span class="badge badge-danger">Refusée</span>{% endif %}</td>
+          <td>{% if d.sortie %}<a href="{% url 'stock:bon_detail' 'sortie' d.sortie.pk %}">{{ d.sortie.numero }}</a>{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</main>
+{% endblock %}

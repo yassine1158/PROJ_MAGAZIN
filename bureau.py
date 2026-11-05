@@ -242,7 +242,8 @@ def verifier(url, dossier):
                    '/articles/importer/',
                    '/etiquettes/', '/etiquettes/?quoi=etageres',
                    '/reglages/plan/', '/reglages/plan/editeur/', '/reglages/listes/', '/reglages/utilisateurs/', '/activation/', '/admin/',
-                   '/reglages/sauvegarde/', '/reglages/exemple/effacer/', '/reglages/telephones/', '/aide/']:
+                   '/reglages/sauvegarde/', '/reglages/exemple/effacer/', '/reglages/telephones/', '/aide/',
+                   '/demandes/', '/demande/']:
         code = client.get(chemin).status_code
         assert code == 200, f'{chemin} → {code}'
         lignes.append(f'OK écran {chemin}')

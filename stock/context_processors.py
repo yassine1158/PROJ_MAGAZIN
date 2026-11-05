@@ -3,7 +3,7 @@ from django.templatetags.static import static
 
 from config import produit
 
-from .models import Article, Parametres
+from .models import Article, DemandePieces, Parametres
 from .reseau import est_local
 from .utils import nuances
 
@@ -28,6 +28,7 @@ def magasin(request):
         contexte['LICENCE'] = getattr(request, 'licence', None) or etat()
     if getattr(request, 'user', None) and request.user.is_authenticated:
         contexte['NB_ALERTES'] = Article.objects.en_alerte().count()
+        contexte['NB_DEMANDES'] = DemandePieces.objects.filter(statut=DemandePieces.EN_ATTENTE).count()
         from .sauvegarde import exemple_present
         contexte['EXEMPLE'] = exemple_present()
     return contexte

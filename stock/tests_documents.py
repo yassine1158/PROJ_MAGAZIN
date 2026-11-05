@@ -8,7 +8,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from django.utils import timezone
 from reportlab.lib.units import mm
@@ -601,6 +601,34 @@ class ExcelTests(RapportsBase):
         self.assertEqual(ws['B10'].value, 1235)
         self.assertFalse(any(c.data_type == 'f' for ligne in ws.iter_rows() for c in ligne))
 
+    def test_caracteres_de_controle_retires(self):
+        """Un caractère invisible (\\x07…) refusé par Excel, dans une désignation ou une recherche, ne fait plus
+        échouer l'export."""
+        from . import exports
+
+        # Désignation enregistrée avant la correction (ou par un autre écran) : les exports la nettoient.
+        Article.objects.filter(pk=self.filtre.pk).update(designation='Filtre\x07 à huile\x1b')
+        self.entree((self.filtre, 3, 1000))
+        self.sortie((self.filtre, 1))
+        self.client.force_login(self.chef)
+        rep = self.client.get(reverse('stock:articles') + '?format=excel')
+        self.assertEqual(rep.status_code, 200)
+        self.assertIn('Filtre à huile', [c.value for ligne in classeur(rep).active.iter_rows() for c in ligne])
+        ws = classeur(self.client.get(reverse('stock:articles') + '?format=excel&q=filtre%07')).active
+        self.assertEqual(ws['A2'].value, 'État du stock · « filtre »')
+        for url in (reverse('stock:etat_stock_date') + '?format=excel', reverse('stock:journal') + '?format=excel',
+                    reverse('stock:article_historique', args=[self.filtre.pk]) + '?format=excel',
+                    reverse('stock:articles') + '?filtre=alerte&format=excel'):
+            with self.subTest(url):
+                ws = classeur(self.client.get(url)).active
+                self.assertIn('Filtre à huile', ' '.join(str(c.value) for ligne in ws.iter_rows() for c in ligne))
+        # Titre, filtres, en-têtes, lignes et total : tout passe par le même nettoyage.
+        ws = classeur(exports.reponse_excel('Titre\x01', ['Texte\x02', ('Qté\x0b', exports.QTE)], [['a\x07b\tc', 1]],
+                                            'test', filtres='q\x1f', pied=[['Total\x0c', 1]])).active
+        self.assertEqual((ws.title, ws['A2'].value, ws['A5'].value, ws['B5'].value),
+                         ('Titre', 'Titre · q', 'Texte', 'Qté'))
+        self.assertEqual((ws['A6'].value, ws['A7'].value), ('ab\tc', 'Total'))
+
 
 class TableauDeBordTests(RapportsBase):
     def test_valeur_par_categorie_et_brouillons(self):
@@ -1153,17 +1181,63 @@ class EtiquettesTests(RapportsBase):
         self.assertEqual(code_scanne('filtre a/huile'), 'filtre a/huile')
         self.assertEqual(code_scanne('http://x/e/3/'), 'http://x/e/3/')
 
-    def test_date_de_creation_des_articles_existants(self):
-        from django.apps import apps
-        migration = importlib.import_module('stock.migrations.0008_article_cree_le')
-        self.entree((self.filtre, 5, 1000), le=date(2026, 3, 2))
-        self.entree((self.filtre, 5, 1000), le=date(2026, 5, 2))
-        Article.objects.update(cree_le=None)
-        migration.dater_articles(apps, None)
-        self.filtre.refresh_from_db()
-        self.ciment.refresh_from_db()
-        self.assertEqual(timezone.localdate(self.filtre.cree_le), date(2026, 3, 2))
-        self.assertIsNone(self.ciment.cree_le)
+
+class DateDeCreationMiseAJourTests(TransactionTestCase):
+    """Date de création des articles existants à la mise à jour : les vraies migrations, sur la base des tests."""
+
+    def setUp(self):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        dernieres = MigrationExecutor(connection).loader.graph.leaf_nodes('stock')
+        self.addCleanup(lambda: MigrationExecutor(connection).migrate(dernieres))
+        self.recu = timezone.make_aware(datetime(2026, 3, 2, 8, 0))
+
+    def migrer(self, nom):
+        """Amène la base à cette migration → modèles de ce moment-là."""
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        return MigrationExecutor(connection).migrate([('stock', nom)]).apps
+
+    def test_mise_a_jour_depuis_la_1_5_0(self):
+        anciens = self.migrer('0007_mouvement_prix_moyen_apres')  # juste avant l'ajout de la date de création
+        categorie = anciens.get_model('stock', 'Categorie').objects.create(nom='Filtres')
+        Ancien = anciens.get_model('stock', 'Article')
+        filtre = Ancien.objects.create(code='FH-01', designation='Filtre à huile', categorie=categorie)
+        Ancien.objects.create(code='CIM-45', designation='Ciment', categorie=categorie)
+        anciens.get_model('stock', 'MouvementStock').objects.create(
+            article=filtre, type='ENTREE', quantite=5, stock_apres=5, reference='BE-2026-00001', date=self.recu)
+        nouveaux = self.migrer('0008_article_cree_le')
+        dates = dict(nouveaux.get_model('stock', 'Article').objects.values_list('code', 'cree_le'))
+        self.assertEqual(dates, {'FH-01': self.recu, 'CIM-45': None})  # jamais mouvementé : sans date
+
+    def test_reparation_des_copies_passees_en_1_6_0(self):
+        # En 1.6.0, 0008 donnait aux articles jamais mouvementés l'heure de la mise à jour, prise juste avant
+        # qu'elle soit notée comme faite.
+        from django.db.migrations.recorder import MigrationRecorder
+        faite = MigrationRecorder.Migration.objects.get(app='stock', name='0008_article_cree_le').applied
+        categorie = Categorie.objects.create(nom='Filtres')
+
+        def article(code, cree_le=None):
+            a = Article.objects.create(code=code, designation=code, categorie=categorie)
+            if cree_le:
+                Article.objects.filter(pk=a.pk).update(cree_le=cree_le)
+            return a
+
+        def entree(a, le=None):
+            MouvementStock.objects.create(article=a, type=MouvementStock.ENTREE, quantite=5, stock_apres=5,
+                                          reference='BE-2026-00001', date=le or timezone.now())
+        entree(article('FH-01', self.recu), self.recu)  # daté par 0008 d'après son premier mouvement
+        article('CIM-45', faite - timedelta(seconds=1))  # jamais mouvementé
+        entree(article('PN-01', faite - timedelta(seconds=1)))  # mouvementé seulement après la mise à jour
+        article('NEUF')  # créé après la mise à jour
+        article('ANCIEN', faite - timedelta(days=2))  # loin de l'heure de la mise à jour : on n'y touche pas
+        self.migrer('0012_fusion_demarrage')
+        self.migrer('0013_reparer_cree_le')
+        dates = dict(Article.objects.values_list('code', 'cree_le'))
+        self.assertEqual(dates['FH-01'], self.recu)
+        self.assertEqual((dates['CIM-45'], dates['PN-01']), (None, None))
+        self.assertGreater(dates['NEUF'], faite)
+        self.assertEqual(dates['ANCIEN'], faite - timedelta(days=2))
 
 
 # =========================================================
@@ -1187,6 +1261,20 @@ def fichier_excel(lignes, titres=TITRES_MODELE, nom='articles.xlsx', avant=()):
     fichier.seek(0)
     fichier.name = nom
     return fichier
+
+
+def classeur_modifie(fichier, nom, contenu):
+    """Copie d'un .xlsx où le morceau « nom » est remplacé par contenu (ajouté s'il manque, retiré si None)."""
+    import zipfile
+
+    sortie = io.BytesIO()
+    with zipfile.ZipFile(fichier) as source, zipfile.ZipFile(sortie, 'w', zipfile.ZIP_DEFLATED) as copie:
+        for info in source.infolist():
+            if info.filename != nom:
+                copie.writestr(info, source.read(info.filename))
+        if contenu is not None:
+            copie.writestr(nom, contenu)
+    return sortie.getvalue()
 
 
 class ImportBase(TestCase):
@@ -1357,6 +1445,11 @@ class ImportApercuTests(ImportBase):
             (b'PK\x03\x04 pas un vrai classeur', 'casse.xlsx', "n'a pas pu être lu"),
             ('Référence;Quantité\nA;1\n'.encode(), 'sans_titre.csv', 'Colonne « Désignation » introuvable'),
             ('Désignation;Code\n'.encode(), 'vide.csv', 'Aucun article dans ce fichier'),
+            # Guillemet jamais fermé : toute la suite du fichier tombe dans une seule cellule, trop longue.
+            ('Désignation;Code\n"Ciment;C-1\n'.encode() + b'x' * 200_000, 'guillemet.csv', 'CSV est mal formé'),
+            (fichier_excel([('C-1', 'Ciment')]).getvalue()[:400], 'coupe.xlsx', "n'a pas pu être lu"),
+            (classeur_modifie(fichier_excel([('C-1', 'Ciment')]), 'xl/workbook.xml', None), 'sans_classeur.xlsx',
+             "n'a pas pu être lu"),
         ]
         from django.core.files.uploadedfile import SimpleUploadedFile
 
@@ -1371,6 +1464,137 @@ class ImportApercuTests(ImportBase):
 
         self.assertEqual(list((Path(settings.DATA_DIR) / 'imports').iterdir()), [])
         self.assertRedirects(self.client.get(reverse('stock:import_apercu')), reverse('stock:import_articles'))
+
+    def test_fichier_abime_decouvert_en_lisant(self):
+        """Classeur qui s'ouvre, mais dont la feuille est abîmée : message clair, jamais une erreur 500."""
+        import zipfile
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        feuille = 'xl/worksheets/sheet1.xml'
+        bon = fichier_excel([('C-1', 'Ciment')])
+        with zipfile.ZipFile(bon) as archive:
+            xml = archive.read(feuille)
+        fin = b'</row></sheetData>'
+        cas = {
+            'coupee.xlsx': xml[:len(xml) * 3 // 4],  # XML interrompu
+            'texte_absent.xlsx': xml.replace(fin, b'<c r="K2" t="s"><v>99</v></c>' + fin),  # texte partagé inexistant
+            'nombre_illisible.xlsx': xml.replace(fin, b'<c r="K2"><v>' + b'9' * 5000 + b'</v></c>' + fin),
+        }
+        for nom, contenu in cas.items():
+            with self.subTest(nom), self.assertLogs('stock', 'WARNING'):
+                rep = self.envoyer(SimpleUploadedFile(nom, classeur_modifie(bon, feuille, contenu)))
+                self.assertEqual(rep.status_code, 200)
+                self.assertContains(rep, 'n&#x27;a pas pu être lu')
+
+    def test_valeurs_geantes(self):
+        """Nombres de 30 chiffres, 1E+30 venu d'Excel, niveau de 5 000 chiffres : ligne refusée, pas d'erreur 500."""
+        rep = self.envoyer(fichier_excel([
+            ('G-1', 'Géant', 'Divers', 'U', 1e30, '9' * 30, 'A-R1-' + '9' * 5000, '1' * 40),
+            ('G-2', 'Normal', 'Divers', 'U', 2, 100)]))
+        self.assertRedirects(rep, reverse('stock:import_apercu'))
+        rep = self.client.get(reverse('stock:import_apercu'))
+        geant, normal = rep.context['analyse'].lignes
+        self.assertEqual((geant.statut, normal.statut), ('erreur', 'ok'))
+        for attendu in ('Stock de départ trop grand', 'Prix unitaire trop grand', 'Stock minimum trop grand',
+                        'illisible : niveau laissé vide'):
+            self.assertIn(attendu, ' '.join(geant.messages))
+        self.assertLess(max(len(m) for m in geant.messages), 80)  # valeurs coupées dans les messages
+        texte = 'Désignation;Stock de départ;Prix unitaire\nGéant;' + '9' * 30 + ';1E+30\n'
+        from . import imports
+
+        geant = imports.analyser(imports.lire(io.BytesIO(texte.encode()), 'a.csv')[1]).lignes[0]
+        self.assertIn('Stock de départ trop grand', geant.messages[0])
+        self.assertIn('« 1E+30 » n\'est pas un nombre', geant.messages[1])
+
+    def test_bombe_de_decompression(self):
+        """Un petit .xlsx qui cache des dizaines de Mo est refusé avant d'être ouvert (mémoire du PC du bureau)."""
+        import os
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from . import imports
+
+        bon = fichier_excel([('C-1', 'Ciment')])
+        bombe = classeur_modifie(bon, 'xl/sharedStrings.xml', b' ' * (11 * 1024 * 1024))
+        self.assertLess(len(bombe), 100_000)
+        with mock.patch('openpyxl.load_workbook') as ouvrir:
+            rep = self.envoyer(SimpleUploadedFile('bombe.xlsx', bombe))
+        ouvrir.assert_not_called()
+        self.assertContains(rep, 'trop gros une fois ouvert')
+        self.assertContains(rep, 'modèle à télécharger')
+        # Au-delà de la limite, même bien compressé normalement.
+        with mock.patch.object(imports, 'MAX_OCTETS_OUVERT', 1024 * 1024):
+            gros = classeur_modifie(bon, 'xl/media/photo.xml', os.urandom(600 * 1024).hex().encode())
+            with self.assertRaisesMessage(imports.ImportImpossible, 'trop gros une fois ouvert'):
+                imports.lire(io.BytesIO(gros), 'gros.xlsx')
+            self.assertEqual(imports.lire(bon, 'bon.xlsx')[1][1][1][:2], ['C-1', 'Ciment'])
+
+    def test_cellule_tout_au_bout_de_la_feuille(self):
+        """Une cellule en colonne XFD ne fait pas remplir chaque ligne de 16 384 cases."""
+        from openpyxl import Workbook
+
+        from . import imports
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(TITRES_MODELE)
+        for i in range(1, 51):
+            ws.append([f'C-{i}', f'Article {i}'])
+            ws.cell(i + 1, 16384, 'oubli')
+        fichier = io.BytesIO()
+        wb.save(fichier)
+        _, lignes = imports.lire(fichier, 'large.xlsx')
+        self.assertEqual({len(valeurs) for _, valeurs in lignes}, {imports.MAX_COLONNES})
+        self.assertEqual(len(imports.analyser(lignes).prets), 50)
+
+    def test_points_des_milliers(self):
+        """« 5.000 F » est un prix de 5 000 F ; une quantité « 2.500 » reste 2,5 mais est « à vérifier »."""
+        from . import imports
+
+        prix = {'5.000 F': 5000, '5.000': 5000, '12.500 FCFA': 12500, '1.250.000': 1250000, '-5.000': -5000,
+                '12.5': Decimal('12.5'), '5,5': Decimal('5.5'), '1 250,50': Decimal('1250.5'),
+                '1.250,50': Decimal('1250.5'), '1,250.50': Decimal('1250.5'), '0.500': Decimal('0.5'),
+                '1.2345': Decimal('1.23'), '12.50': Decimal('12.5')}
+        for texte, attendu in prix.items():
+            with self.subTest(prix=texte):
+                self.assertEqual(imports._nombre(texte, 2, milliers=True), attendu)
+        quantites = {'2.500': Decimal('2.5'), '12.5': Decimal('12.5'), '1.500.000': 1500000,
+                     '1 250,5': Decimal('1250.5')}
+        for texte, attendu in quantites.items():
+            with self.subTest(quantite=texte):
+                self.assertEqual(imports._nombre(texte, 3), attendu)
+        self.assertEqual(imports._nombre(2.5, 3, milliers=True), Decimal('2.5'))  # nombre d'Excel : jamais touché
+        for texte in ('1.000.5', '5.00.000', '1.2.3'):
+            with self.subTest(refuse=texte), self.assertRaises(ValueError):
+                imports._nombre(texte, 2, milliers=True)
+
+        analyse = self.analyser([
+            ('P-1', 'Ciment', 'Matériaux', 'sac', '400', '5.000 F'),
+            ('P-2', 'Gasoil', 'Carburant', 'L', '2.500', '1.250.000'),
+            ('P-3', 'Fer', 'Matériaux', 'barre', 2.5, '12.5', '', '1.000'),
+        ])
+        ciment, gasoil, fer = analyse.lignes
+        self.assertEqual((ciment.statut, ciment.stock, ciment.prix), ('ok', 400, 5000))
+        self.assertEqual((gasoil.statut, gasoil.stock, gasoil.prix), ('avertissement', Decimal('2.5'), 1250000))
+        self.assertEqual(gasoil.messages,
+                         ['Stock de départ « 2.500 » lu 2,5 : pour 2\xa0500, écrivez 2500 sans point.'])
+        self.assertEqual((fer.statut, fer.stock, fer.prix, fer.stock_min), ('avertissement', Decimal('2.5'),
+                                                                            Decimal('12.5'), 1))
+        self.assertEqual(fer.messages, ['Stock minimum « 1.000 » lu 1 : pour 1\xa0000, écrivez 1000 sans point.'])
+
+    def test_caracteres_de_controle_dans_le_fichier(self):
+        texte = ('Code;Désignation;Catégorie\nC-1;Ciment\x07 CPJ\x1b 45;Maté\x00riaux\n'.encode()
+                 + 'C-2;Fer\x0bà béton;Matériaux\n'.encode())
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.assertRedirects(self.envoyer(SimpleUploadedFile('ctrl.csv', texte)), reverse('stock:import_apercu'))
+        ciment, fer = self.client.get(reverse('stock:import_apercu')).context['analyse'].lignes
+        self.assertEqual((ciment.designation, ciment.categorie, fer.designation), ('Ciment CPJ 45', 'Matériaux',
+                                                                                   'Fer à béton'))
+        excel = self.client.get(reverse('stock:import_apercu') + '?format=excel')
+        self.assertEqual(excel.status_code, 200)
+        self.assertIn('Ciment CPJ 45', [c.value for ligne in classeur(excel).active.iter_rows() for c in ligne])
 
     def test_reimport_d_un_export_du_logiciel(self):
         from . import exports, imports
@@ -1390,6 +1614,19 @@ class ImportArticlesTests(ImportBase):
     def importer(self, fichier, **options):
         self.assertRedirects(self.envoyer(fichier), reverse('stock:import_apercu'))
         return self.client.post(reverse('stock:import_confirmer'), options)
+
+    def test_message_affiche_une_seule_fois(self):
+        for url in (reverse('stock:import_articles'), reverse('stock:etiquettes'),
+                    reverse('stock:article_historique', args=[self.filtre.pk])):
+            self.client.get(reverse('stock:import_apercu'))  # sans fichier : un message pour la page suivante
+            self.assertEqual(self.client.get(url).content.decode().count('abord le fichier à importer'), 1, url)
+
+    def test_messages_affiches_seulement_par_la_page_de_base(self):
+        from pathlib import Path
+        for gabarit in (Path(__file__).parent / 'templates').rglob('*.html'):
+            texte = gabarit.read_text(encoding='utf-8')
+            if "{% extends 'stock/base.html' %}" in texte:
+                self.assertNotIn('_messages.html', texte, gabarit.name)
 
     def test_import_en_un_seul_bon_de_stock_de_depart(self):
         rep = self.importer(fichier_excel([
@@ -1452,6 +1689,34 @@ class ImportArticlesTests(ImportBase):
         self.assertLessEqual(p2.x + p2.largeur, bloc_b.largeur)
         self.assertGreater(valve.etagere.z, self.r1.z + self.r1.profondeur)  # derrière l'étagère R1 existante
         self.assertContains(self.client.get(reverse('stock:import_resultat')), 'Vérifiez leur place')
+
+    def test_etiquettes_des_seuls_articles_de_l_import(self):
+        """« Imprimer leurs étiquettes » : les articles de cet import, pas ceux d'un autre import du même jour."""
+        from urllib.parse import parse_qs, urlsplit
+
+        from . import etiquettes
+
+        self.importer(fichier_excel([('M-1', 'Matin 1', 'Divers'), ('M-2', 'Matin 2', 'Divers')]))
+        self.importer(fichier_excel([('S-1', 'Soir 1', 'Divers'), ('S-2', 'Soir 2', 'Divers')]))
+        lien = self.client.get(reverse('stock:import_resultat')).context['lien_etiquettes']
+        page = self.client.get(lien)
+        self.assertEqual(sorted(a.code for a in page.context['articles']), ['S-1', 'S-2'])
+        self.assertContains(page, "Seulement les articles créés depuis l'import du")
+        # Le filtre suit le formulaire d'impression et celui des filtres.
+        apres = parse_qs(urlsplit(lien).query)['apres'][0]
+        self.assertContains(page, f'<input type="hidden" name="apres" value="{apres}">', count=2, html=False)
+        imprimees = []
+        with mock.patch.object(etiquettes, '_dessiner_qr', lambda c, texte, *args: imprimees.append(texte)):
+            rep = self.client.post(reverse('stock:etiquettes'), {'apres': apres, 'format': 'a4-24'})
+        self.assertEqual(rep['Content-Type'], 'application/pdf')
+        self.assertEqual(sorted(imprimees), ['http://testserver/a/S-1/', 'http://testserver/a/S-2/'])
+        choisis = [str(Article.objects.get(code=code).pk) for code in ('M-1', 'S-1')]
+        page = self.client.get(reverse('stock:etiquettes'), {'apres': apres, 'article': choisis})  # et un autre filtre
+        self.assertEqual([a.code for a in page.context['articles']], ['S-1'])
+        # Valeur illisible : ignorée.
+        for valeur in ('nimporte', '0001-01-01T00:00:00+14:00', '9999-12-31T23:00:00-05:00', ''):
+            with self.subTest(valeur):
+                self.assertEqual(self.client.get(reverse('stock:etiquettes'), {'apres': valeur}).context['total'], 5)
 
     def test_transaction_tout_ou_rien(self):
         nb = (Article.objects.count(), Categorie.objects.count(), Bloc.objects.count(), Etagere.objects.count())

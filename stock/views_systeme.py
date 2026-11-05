@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import DatabaseError
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -142,6 +143,11 @@ def _vider(request):
         chemin = s.vider_donnees()
     except s.ErreurSauvegarde as e:
         messages.error(request, f"Rien n'a été effacé. {e}")
+        return redirect(RETOUR)
+    except DatabaseError:  # ProtectedError compris : l'effacement est annulé en entier (transaction)
+        s.journal.exception('Effacement des données impossible')
+        messages.error(request, "Rien n'a été effacé : une erreur est survenue. Réessayez ; si elle revient, "
+                                "envoyez un rapport à l'assistance (page Aide).")
         return redirect(RETOUR)
     messages.success(request, f'Données effacées (une copie a été gardée : {chemin.name}). Vous pouvez commencer : '
                               'dessinez le plan du magasin, puis ajoutez vos articles.')

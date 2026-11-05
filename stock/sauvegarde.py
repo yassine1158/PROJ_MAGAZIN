@@ -43,9 +43,10 @@ RAISONS = {
     'verification': 'Vérification',
 }
 EXEMPLE_REFERENCE = 'BL-DEMO-001'  # bon d'entrée créé par la commande demo
-MODELES_A_VIDER = ['MouvementStock', 'LigneEntree', 'LigneSortie', 'LigneInventaire', 'BonEntree', 'BonSortie',
-                   'Inventaire', 'Article', 'Categorie', 'Fournisseur', 'Chantier', 'Engin', 'Etagere', 'Bloc',
-                   'Mur', 'Element']
+# Ordre d'effacement : ce qui pointe vers un autre modèle passe avant lui (clés protégées).
+MODELES_A_VIDER = ['LigneDemande', 'DemandePieces', 'MouvementStock', 'LigneEntree', 'LigneSortie', 'LigneRetour',
+                   'LigneInventaire', 'BonEntree', 'BonRetour', 'BonSortie', 'Inventaire', 'Article', 'Categorie',
+                   'Fournisseur', 'Chantier', 'Engin', 'Etagere', 'Bloc', 'Mur', 'Element']
 
 journal = logging.getLogger(__name__)
 _verrou = threading.Lock()
@@ -529,11 +530,12 @@ def exemple_present():
 
 
 def compter_donnees():
-    from .models import Article, Bloc, BonEntree, BonSortie, Categorie, Chantier, Engin, Etagere, Fournisseur, \
-        Inventaire, MouvementStock
+    from .models import Article, Bloc, BonEntree, BonRetour, BonSortie, Categorie, Chantier, Engin, Etagere, \
+        Fournisseur, Inventaire, MouvementStock
     return {
         'articles': Article.objects.count(),
-        'bons': BonEntree.objects.count() + BonSortie.objects.count() + Inventaire.objects.count(),
+        'bons': (BonEntree.objects.count() + BonSortie.objects.count() + BonRetour.objects.count()
+                 + Inventaire.objects.count()),
         'mouvements': MouvementStock.objects.count(),
         'blocs': Bloc.objects.count(),
         'etageres': Etagere.objects.count(),

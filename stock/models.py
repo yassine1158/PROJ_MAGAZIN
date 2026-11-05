@@ -322,7 +322,7 @@ class LigneSortie(models.Model):
     bon = models.ForeignKey(BonSortie, on_delete=models.CASCADE, related_name='lignes')
     article = models.ForeignKey(Article, on_delete=models.PROTECT)
     quantite = models.DecimalField('quantité', validators=STRICT_POSITIF, **QTE)
-    # Prix moyen de l'article figé au moment de la validation.
+    # Prix moyen de l'article au jour du bon, figé au moment de la validation.
     prix_unitaire = models.DecimalField('prix unitaire', default=0, editable=False, **PRIX)
 
     class Meta:
@@ -337,7 +337,7 @@ class LigneSortie(models.Model):
 
 
 class BonRetour(Bon):
-    """Marchandise non utilisée rapportée d'un chantier : le stock remonte, le prix moyen ne change pas."""
+    """Marchandise non utilisée rapportée d'un chantier : le stock remonte, au coût de la sortie."""
     PREFIXE = 'BR'
 
     chantier = models.ForeignKey(Chantier, on_delete=models.PROTECT)
@@ -359,7 +359,8 @@ class LigneRetour(models.Model):
     bon = models.ForeignKey(BonRetour, on_delete=models.CASCADE, related_name='lignes')
     article = models.ForeignKey(Article, on_delete=models.PROTECT)
     quantite = models.DecimalField('quantité', validators=STRICT_POSITIF, **QTE)
-    # Prix moyen de l'article figé au moment de la validation.
+    # Coût de la sortie (prix de la sortie d'origine, sinon coût moyen des sorties vers ce chantier), figé à la
+    # validation : le retour retire de la consommation la valeur que la sortie y avait mise.
     prix_unitaire = models.DecimalField('prix unitaire', default=0, editable=False, **PRIX)
 
     class Meta:
@@ -416,6 +417,87 @@ class LigneInventaire(models.Model):
             return None
         theorique = self.stock_theorique if self.stock_theorique is not None else self.article.stock
         return self.stock_compte - theorique
+
+
+# =========================================================
+# Demandes de pièces (QR code affiché à l'atelier)
+# =========================================================
+
+class DemandePieces(models.Model):
+    """Pièces demandées depuis un téléphone (QR code de l'atelier), sans compte : le magasin la valide
+    (une sortie de stock est créée) ou la refuse."""
+    EN_ATTENTE, VALIDEE, REFUSEE = 'EN_ATTENTE', 'VALIDEE', 'REFUSEE'
+    STATUTS = [
+        (EN_ATTENTE, 'En attente'),
+        (VALIDEE, 'Validée'),
+        (REFUSEE, 'Refusée'),
+    ]
+    PREFIXE = 'DP'
+
+    numero = models.CharField('numéro', max_length=30, unique=True, editable=False, blank=True)
+    date = models.DateTimeField(default=timezone.now)
+    demandeur = models.CharField(max_length=150)
+    telephone = models.CharField('téléphone', max_length=30, blank=True)
+    chantier = models.ForeignKey(Chantier, on_delete=models.SET_NULL, null=True, blank=True)
+    engin = models.ForeignKey(Engin, on_delete=models.SET_NULL, null=True, blank=True)
+    # Chantier ou engin tapé par le demandeur quand il n'est pas dans la liste.
+    chantier_texte = models.CharField('chantier (tapé)', max_length=150, blank=True)
+    engin_texte = models.CharField('engin (tapé)', max_length=50, blank=True)
+    observation = models.TextField(blank=True)
+    statut = models.CharField(max_length=10, choices=STATUTS, default=EN_ATTENTE, editable=False)
+    traite_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, editable=False,
+                                   related_name='+', verbose_name='traitée par')
+    date_traitement = models.DateTimeField('traitée le', null=True, editable=False)
+    motif_refus = models.CharField('motif du refus', max_length=255, blank=True, editable=False)
+    sortie = models.ForeignKey(BonSortie, on_delete=models.SET_NULL, null=True, blank=True, editable=False,
+                               related_name='demandes', verbose_name='bon de sortie')
+    # Lien de suivi donné au demandeur (page « où en est ma demande ? ») ; sert aussi contre le double envoi.
+    jeton = models.CharField(max_length=32, unique=True, editable=False)
+
+    class Meta:
+        verbose_name = 'demande de pièces'
+        verbose_name_plural = 'demandes de pièces'
+        ordering = ['-date', '-id']
+
+    def __str__(self):
+        return self.numero or f'{self.PREFIXE} (nouvelle)'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if not self.numero:
+            self.numero = f'{self.PREFIXE}-{self.date:%Y}-{self.pk:05d}'
+            super().save(update_fields=['numero'])
+
+    @property
+    def en_attente(self):
+        return self.statut == self.EN_ATTENTE
+
+    @property
+    def nom_chantier(self):
+        return self.chantier.nom if self.chantier else self.chantier_texte
+
+    @property
+    def nom_engin(self):
+        return self.engin.code if self.engin else self.engin_texte
+
+
+class LigneDemande(models.Model):
+    demande = models.ForeignKey(DemandePieces, on_delete=models.CASCADE, related_name='lignes')
+    # Vide : pièce hors catalogue, décrite par le demandeur (à acheter).
+    article = models.ForeignKey(Article, on_delete=models.SET_NULL, null=True, blank=True)
+    designation = models.CharField('désignation', max_length=200, blank=True)
+    quantite = models.DecimalField('quantité', validators=STRICT_POSITIF, **QTE)
+
+    class Meta:
+        verbose_name = 'ligne'
+        ordering = ['id']
+
+    def __str__(self):
+        return f'{self.libelle} × {self.quantite}'
+
+    @property
+    def libelle(self):
+        return self.article.designation if self.article else self.designation
 
 
 # =========================================================

@@ -3,7 +3,6 @@
 {% block titre %}Étiquettes{% endblock %}
 {% block contenu %}
 <main class="page etiquettes">
-  {% include 'stock/_messages.html' %}
   <div class="entete">
     <div>
       <h1>Étiquettes</h1>
@@ -22,6 +21,7 @@
 {% if quoi == 'articles' %}
   <form method="get" class="carte filtres-rapport">
     {% for a in choix.articles %}<input type="hidden" name="article" value="{{ a }}">{% endfor %}
+    {% if choix.apres %}<input type="hidden" name="apres" value="{{ choix.apres.isoformat }}">{% endif %}
     <div class="grille-filtres">
       <div class="champ champ-large"><label for="q">Rechercher</label><input type="search" id="q" name="q" value="{{ choix.q }}" placeholder="Code, nom, autre nom…"></div>
       <div class="champ">
@@ -56,6 +56,7 @@
       </div>
     </div>
     {% if choix.articles %}<p class="petit muted filtre-fiche">Seulement {% if choix.articles|length == 1 %}l'article choisi depuis sa fiche{% else %}les {{ choix.articles|length }} articles choisis{% endif %} · <a href="{{ lien_effacer }}">voir tous les articles</a></p>{% endif %}
+    {% if choix.apres %}<p class="petit muted filtre-fiche">Seulement les articles créés depuis l'import du {{ choix.apres|date:'d/m/Y à H:i' }} · <a href="{{ lien_effacer }}">voir tous les articles</a></p>{% endif %}
   </form>
 
   <form method="post" id="form-etiquettes" data-total="{{ total }}" data-limite="{{ limite_etiquettes }}"{% if not BUREAU %} target="_blank"{% endif %}>

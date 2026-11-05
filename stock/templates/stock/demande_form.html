@@ -1,0 +1,188 @@
+{% load static magasin %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demande de pièces · {{ NOM_AFFICHE }}</title>
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
+</head>
+<body class="page-demande">
+<main class="demande-mobile">
+  <header class="demande-entete">
+    <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+    <div>
+      <h1>Demande de pièces</h1>
+      <p>{{ NOM_AFFICHE }} · le magasin la reçoit tout de suite</p>
+    </div>
+  </header>
+
+  {% if erreurs %}
+    <div class="message message-error" role="alert">{% for e in erreurs %}<div>{{ e }}</div>{% endfor %}</div>
+  {% endif %}
+
+  <form method="post" id="form-demande" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="jeton" value="{{ jeton }}">
+
+    <section class="carte carte-pad">
+      <div class="champ">
+        <label for="demandeur">Votre nom *</label>
+        <input type="text" id="demandeur" name="demandeur" value="{{ valeurs.demandeur|default:'' }}" maxlength="150"
+               autocomplete="name" required>
+      </div>
+      <div class="champ">
+        <label for="chantier">Chantier</label>
+        <input type="text" id="chantier" name="chantier" value="{{ valeurs.chantier|default:'' }}" maxlength="150"
+               list="liste-chantiers" autocomplete="off" placeholder="Choisissez ou tapez">
+        <datalist id="liste-chantiers">{% for c in chantiers %}<option value="{{ c }}">{% endfor %}</datalist>
+      </div>
+      <div class="champ">
+        <label for="engin">Engin ou camion <span class="muted">(facultatif)</span></label>
+        <input type="text" id="engin" name="engin" value="{{ valeurs.engin|default:'' }}" maxlength="50"
+               list="liste-engins" autocomplete="off">
+        <datalist id="liste-engins">{% for e in engins %}<option value="{{ e }}">{% endfor %}</datalist>
+      </div>
+      <div class="champ">
+        <label for="telephone">Téléphone <span class="muted">(facultatif)</span></label>
+        <input type="tel" id="telephone" name="telephone" value="{{ valeurs.telephone|default:'' }}" maxlength="30"
+               autocomplete="tel">
+      </div>
+    </section>
+
+    <section class="carte carte-pad">
+      <h2>Pièces demandées</h2>
+      <div class="champ recherche-piece">
+        <label for="cherche">Ajouter une pièce</label>
+        <input type="search" id="cherche" placeholder="Nom ou code (ex. : filtre à huile)" autocomplete="off"
+               enterkeyhint="search">
+        <ul class="propositions" id="propositions" hidden></ul>
+      </div>
+      <ul class="lignes-demande" id="lignes">
+        {% for l in lignes %}
+        <li data-n="{{ forloop.counter }}">
+          {% if l.article %}<input type="hidden" name="article_{{ forloop.counter }}" value="{{ l.article.pk }}">
+          {% else %}<input type="hidden" name="libre_{{ forloop.counter }}" value="{{ l.designation }}">{% endif %}
+          <div class="nom">{{ l.designation }}{% if l.article %} <span class="muted">{{ l.article.code }}</span>{% else %} <span class="badge badge-warn">hors stock</span>{% endif %}</div>
+          <input type="text" inputmode="decimal" name="qte_{{ forloop.counter }}" value="{{ l.quantite }}" aria-label="Quantité">
+          <button type="button" class="btn btn-icone retirer" aria-label="Retirer">×</button>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="muted petit vide-lignes" id="vide-lignes"{% if lignes %} hidden{% endif %}>Aucune pièce pour l'instant : cherchez-la ci-dessus.</p>
+    </section>
+
+    <section class="carte carte-pad">
+      <div class="champ">
+        <label for="observation">Remarque <span class="muted">(facultatif)</span></label>
+        <textarea id="observation" name="observation" rows="3" maxlength="2000"
+                  placeholder="Urgence, panne, modèle exact…">{{ valeurs.observation|default:'' }}</textarea>
+      </div>
+      <button type="submit" class="btn btn-vert btn-grand bouton-plein">{% icone 'valider' %} Envoyer la demande</button>
+    </section>
+  </form>
+</main>
+
+<script>
+(() => {
+  const cherche = document.getElementById('cherche');
+  const liste = document.getElementById('propositions');
+  const lignes = document.getElementById('lignes');
+  const vide = document.getElementById('vide-lignes');
+  let n = lignes.children.length;
+  let attente = null, requete = 0;
+
+  const majVide = () => { vide.hidden = lignes.children.length > 0; };
+  const ajouter = (piece) => {
+    n += 1;
+    const li = document.createElement('li');
+    li.dataset.n = n;
+    const cache = document.createElement('input');
+    cache.type = 'hidden';
+    cache.name = piece.id ? `article_${n}` : `libre_${n}`;
+    cache.value = piece.id || piece.designation;
+    const nom = document.createElement('div');
+    nom.className = 'nom';
+    nom.textContent = piece.designation + ' ';
+    const detail = document.createElement('span');
+    detail.className = piece.id ? 'muted' : 'badge badge-warn';
+    detail.textContent = piece.id ? piece.code : 'hors stock';
+    nom.append(detail);
+    const qte = document.createElement('input');
+    qte.type = 'text'; qte.inputMode = 'decimal'; qte.name = `qte_${n}`; qte.value = '1';
+    qte.setAttribute('aria-label', 'Quantité');
+    const retirer = document.createElement('button');
+    retirer.type = 'button'; retirer.className = 'btn btn-icone retirer'; retirer.textContent = '×';
+    retirer.setAttribute('aria-label', 'Retirer');
+    li.append(cache, nom, qte, retirer);
+    lignes.append(li);
+    majVide();
+    cherche.value = '';
+    liste.hidden = true;
+    qte.focus();
+    qte.select();
+  };
+  lignes.addEventListener('click', (e) => {
+    if (e.target.closest('.retirer')) { e.target.closest('li').remove(); majVide(); }
+  });
+
+  const afficher = (articles, texte) => {
+    liste.innerHTML = '';
+    articles.forEach((a) => {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = '<span class="nom"></span><span class="detail"></span>';
+      b.querySelector('.nom').textContent = a.designation;
+      b.querySelector('.detail').textContent = `${a.code} · ${a.unite}` + (a.disponible ? '' : ' · épuisé');
+      b.onclick = () => ajouter(a);
+      li.append(b);
+      liste.append(li);
+    });
+    if (texte.length >= 2) {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'libre';
+      b.textContent = `Pièce introuvable : demander « ${texte} »`;
+      b.onclick = () => ajouter({designation: texte});
+      li.append(b);
+      liste.append(li);
+    }
+    liste.hidden = !liste.children.length;
+  };
+  cherche.addEventListener('input', () => {
+    clearTimeout(attente);
+    const texte = cherche.value.trim();
+    if (!texte) { liste.hidden = true; return; }
+    attente = setTimeout(() => {
+      const ici = ++requete;
+      fetch(`{% url 'stock:demande_articles' %}?q=${encodeURIComponent(texte)}`)
+        .then((r) => (r.ok ? r.json() : {articles: []}))
+        .then((d) => { if (ici === requete) afficher(d.articles, texte); })
+        .catch(() => afficher([], texte));
+    }, 250);
+  });
+  cherche.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const premier = liste.querySelector('button');
+      if (premier && !liste.hidden) premier.click();
+    }
+  });
+  // Nom et téléphone gardés sur ce téléphone pour la prochaine demande.
+  try {
+    ['demandeur', 'telephone'].forEach((c) => {
+      const champ = document.getElementById(c);
+      if (!champ.value) champ.value = localStorage.getItem(`demande_${c}`) || '';
+    });
+    document.getElementById('form-demande').addEventListener('submit', (e) => {
+      ['demandeur', 'telephone'].forEach((c) => localStorage.setItem(`demande_${c}`, document.getElementById(c).value));
+      e.submitter && (e.submitter.disabled = true, e.submitter.textContent = 'Envoi…');
+    });
+  } catch (e) { /* stockage indisponible : rien à garder */ }
+})();
+</script>
+</body>
+</html>

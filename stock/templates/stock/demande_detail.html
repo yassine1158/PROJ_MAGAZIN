@@ -1,0 +1,101 @@
+{% extends 'stock/base.html' %}
+{% load magasin %}
+{% block titre %}Demande {{ demande.numero }}{% endblock %}
+{% block contenu %}
+<main class="page demande-detail">
+  <div class="entete">
+    <div>
+      <p class="fil"><a href="{% url 'stock:demandes' %}">Demandes de pièces</a> › {{ demande.numero }}</p>
+      <h1>Demande {{ demande.numero }}</h1>
+      <p>
+        {% if demande.statut == 'EN_ATTENTE' %}<span class="badge badge-warn">En attente</span>{% elif demande.statut == 'VALIDEE' %}<span class="badge badge-ok">Validée</span>{% else %}<span class="badge badge-danger">Refusée</span>{% endif %}
+        · {{ demande.date|date:"d/m/Y à H:i" }} · par <b>{{ demande.demandeur }}</b>{% if demande.telephone %} ({{ demande.telephone }}){% endif %}
+      </p>
+    </div>
+    <div class="actions-bon">
+      <a class="btn" href="{% url 'stock:demande_pdf' demande.pk %}"{% if not BUREAU %} target="_blank"{% endif %}>{% icone 'imprimer' %} Imprimer la demande</a>
+      {% if demande.sortie %}<a class="btn btn-vert" href="{% url 'stock:bon_detail' 'sortie' demande.sortie.pk %}">{% icone 'sortie' %} Bon de sortie {{ demande.sortie.numero }}</a>{% endif %}
+    </div>
+  </div>
+
+  {% if demande.observation %}<div class="message message-info"><div><b>Remarque du demandeur :</b> {{ demande.observation|linebreaksbr }}</div></div>{% endif %}
+  {% if demande.statut == 'REFUSEE' %}
+  <div class="message message-error"><div><b>Refusée</b>{% if demande.traite_par %} par {{ demande.traite_par.get_full_name|default:demande.traite_par.get_username }}{% endif %} : {{ demande.motif_refus }}
+    <form method="post" action="{% url 'stock:demande_rouvrir' demande.pk %}" class="en-ligne">{% csrf_token %}<button class="btn btn-discret" type="submit">Remettre en attente</button></form></div></div>
+  {% endif %}
+
+  {% if erreurs %}
+  <div class="message message-error" role="alert"><div>{% for e in erreurs %}<div>{{ e }}</div>{% endfor %}</div></div>
+  {% endif %}
+
+  {% if demande.statut == 'EN_ATTENTE' %}
+  <form method="post" class="carte carte-pad">
+    {% csrf_token %}
+    <div class="grille-champs">
+      <div class="champ">
+        <label for="chantier">Chantier *</label>
+        <input id="chantier" name="chantier" list="liste-chantiers" value="{{ valeurs.chantier|default:'' }}" placeholder="Choisir ou taper un chantier" required>
+        <datalist id="liste-chantiers">{% for c in chantiers %}<option value="{{ c }}">{% endfor %}</datalist>
+        {% include 'stock/_proposition_nom.html' with p=nouveau_chantier champ='chantier' titre='Nouveau chantier ?' case='Oui, créer ce chantier' %}
+      </div>
+      <div class="champ">
+        <label for="engin">Engin / camion</label>
+        <input id="engin" name="engin" list="liste-engins" value="{{ valeurs.engin|default:'' }}" placeholder="Facultatif">
+        <datalist id="liste-engins">{% for e in engins %}<option value="{{ e }}">{% endfor %}</datalist>
+        {% include 'stock/_proposition_nom.html' with p=nouvel_engin champ='engin' titre='Nouvel engin ?' case='Oui, créer cet engin' %}
+      </div>
+      <div class="champ">
+        <label for="demandeur">Reçu par *</label>
+        <input id="demandeur" name="demandeur" value="{{ valeurs.demandeur|default:'' }}" maxlength="150" required>
+      </div>
+    </div>
+
+    {% if du_stock %}
+    <table class="data table-demande">
+      <thead><tr><th>Pièce</th><th class="num">Demandé</th><th class="num">En stock</th><th class="num">À donner</th></tr></thead>
+      <tbody>
+      {% for l in du_stock %}
+        <tr{% if l.manque %} class="ligne-manque"{% endif %}>
+          <td><b>{{ l.article.designation }}</b><div class="muted petit">{{ l.article.code }}{% if l.article.emplacement %} · {{ l.article.emplacement }}{% endif %}</div></td>
+          <td class="num">{{ l.quantite|qte }} {{ l.article.unite|lower }}</td>
+          <td class="num">{% if l.manque %}<span class="badge badge-danger">{{ l.article.stock|qte }}</span>{% else %}{{ l.article.stock|qte }}{% endif %}</td>
+          <td class="num"><input class="case-qte" type="text" inputmode="decimal" name="qte_{{ l.pk }}" value="{{ l.a_donner }}" aria-label="Quantité à donner : {{ l.article.designation }}"></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted petit">Mettez 0 pour une pièce que vous ne donnez pas. La sortie de stock est faite au nom de la personne qui reçoit.</p>
+    {% endif %}
+
+    {% if a_acheter %}
+    <h3>Hors stock (à acheter)</h3>
+    <ul class="hors-stock">{% for l in a_acheter %}<li>{{ l.designation }} × <b>{{ l.quantite|qte }}</b></li>{% endfor %}</ul>
+    <p class="muted petit">Ces pièces ne sont pas dans le magasin : elles restent sur la demande imprimée.</p>
+    {% endif %}
+
+    <div class="actions-demande">
+      {% if du_stock %}<button class="btn btn-vert btn-grand" type="submit" name="action" value="valider">{% icone 'valider' %} Valider et imprimer le bon de sortie</button>{% endif %}
+      <details class="refus">
+        <summary class="btn">{% icone 'annuler' %} Refuser</summary>
+        <div class="champ">
+          <label for="motif">Motif (le demandeur le voit sur son téléphone)</label>
+          <input id="motif" name="motif" maxlength="255" placeholder="Ex. : pièce en commande, revenir jeudi">
+        </div>
+        <button class="btn btn-rouge" type="submit" name="action" value="refuser" formnovalidate>Refuser la demande</button>
+      </details>
+    </div>
+  </form>
+  {% else %}
+  <section class="carte">
+    <table class="data">
+      <thead><tr><th>Pièce</th><th class="num">Demandé</th></tr></thead>
+      <tbody>
+      {% for l in du_stock %}<tr><td>{{ l.article.designation }} <span class="muted petit">{{ l.article.code }}</span></td><td class="num">{{ l.quantite|qte }}</td></tr>{% endfor %}
+      {% for l in a_acheter %}<tr><td>{{ l.designation }} <span class="badge badge-warn">hors stock</span></td><td class="num">{{ l.quantite|qte }}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% if demande.traite_par %}<p class="muted petit">Traitée par {{ demande.traite_par.get_full_name|default:demande.traite_par.get_username }} le {{ demande.date_traitement|date:"d/m/Y à H:i" }}.</p>{% endif %}
+  {% endif %}
+</main>
+{% endblock %}

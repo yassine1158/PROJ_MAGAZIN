@@ -945,3 +945,52 @@ def resultat_inventaire(bon, lignes):
         elements += [Spacer(1, 5 * mm), Paragraph(f'Articles non comptés : stock inchangé ({len(non_comptees)})', SECTION), table]
     elements += [Spacer(1, 10 * mm), KeepTogether(_signatures(Parametres.actuels().signataire, 'Le responsable'))]
     return _document_inventaire(elements, f'{bon.numero}-resultat', f"{bon.numero} · Résultat d'inventaire")
+
+
+# =========================================================
+# Demande de pièces (QR code de l'atelier)
+# =========================================================
+
+def demande_pdf(demande, utilisateur=None):
+    """La demande telle qu'elle a été reçue (ou servie) : pièces du stock et pièces hors catalogue à acheter."""
+    response, doc = _document(demande.numero)
+    elements = _societe() + [Paragraph(f'DEMANDE DE PIÈCES N° {escape(demande.numero)}', TITRE)]
+    couleur = {demande.EN_ATTENTE: '#b26b00', demande.VALIDEE: '#1e7b34', demande.REFUSEE: '#c9302c'}[demande.statut]
+    elements += [Paragraph(f'<font color="{couleur}"><b>{demande.get_statut_display().upper()}</b></font>',
+                           ParagraphStyle('Statut', parent=NORMAL, alignment=TA_CENTER, spaceBefore=4)),
+                 Spacer(1, 5 * mm)]
+    traitement = ''
+    if demande.date_traitement:
+        quand = timezone.localtime(demande.date_traitement)
+        traitement = f'{_nom(demande.traite_par)} le {quand:%d/%m/%Y} à {quand:%H:%M}'.strip()
+    elements += _infos([
+        ('Date', _date(demande)),
+        ('Demandé par', demande.demandeur),
+        ('Chantier', demande.nom_chantier),
+        ('Engin', demande.nom_engin),
+        ('Téléphone', demande.telephone),
+        ('Bon de sortie', demande.sortie.numero if demande.sortie else ''),
+        ('Traitée par', traitement),
+        ('Remarque', demande.observation),
+        *([('Motif du refus', demande.motif_refus)] if demande.motif_refus else []),
+    ])
+    lignes = list(demande.lignes.select_related('article'))
+    du_stock = [l for l in lignes if l.article]
+    a_acheter = [l for l in lignes if not l.article]
+    if du_stock:
+        elements += _tableau(
+            ['Code', 'Désignation', 'Quantité', 'Unité', 'En stock'],
+            [[l.article.code, Paragraph(escape(l.article.designation), PETIT), quantite(l.quantite),
+              _unite(l.article), quantite(l.article.stock)] for l in du_stock],
+            largeurs=[32 * mm, 84 * mm, 20 * mm, 22 * mm, 22 * mm], droite={2, 4})
+    if a_acheter:
+        elements += [Paragraph('Pièces hors stock (à acheter)', ParagraphStyle(
+            'HorsStock', parent=NORMAL, fontName='Helvetica-Bold', textColor=BLEU, spaceBefore=4, spaceAfter=3))]
+        elements += _tableau(['Désignation', 'Quantité'],
+                             [[Paragraph(escape(l.designation), PETIT), quantite(l.quantite)] for l in a_acheter],
+                             largeurs=[150 * mm, 30 * mm], droite={1})
+    elements += _signatures('Le demandeur', Parametres.actuels().signataire, nom_gauche=demande.demandeur,
+                            nom_droite=_nom(demande.traite_par))
+    filigrane = 'REFUSÉE' if demande.statut == demande.REFUSEE else ''
+    _construire(doc, [_Repere({'id': 0, 'numero': demande.numero, 'filigrane': filigrane})] + elements, utilisateur)
+    return response

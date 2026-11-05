@@ -7,11 +7,13 @@ transaction les catégories, les blocs et étagères manquants (si demandé), le
 import csv
 import io
 import json
+import logging
 import math
 import re
 import secrets
 import time
 import unicodedata
+import zipfile
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
@@ -23,8 +25,17 @@ from django.utils import timezone
 
 from . import services
 from .models import Article, Bloc, BonEntree, Categorie, Etagere, LigneEntree
+from .utils import quantite
+
+journal = logging.getLogger('stock')
 
 MAX_OCTETS = 10 * 1024 * 1024
+# Un .xlsx est un fichier zip : quelques Ko peuvent cacher des Go de texte une fois ouverts (« bombe »). Un classeur
+# de 5 000 articles fait moins de 10 Mo ouvert. Mesuré : chaque Mo de texte ouvert demande environ 0,5 s, et les
+# textes des cellules (lus en entier d'un coup) 7 Mo de mémoire par Mo.
+MAX_OCTETS_OUVERT = 50 * 1024 * 1024
+TAUX_MAXI = 100  # un vrai classeur est 10 à 20 fois plus gros une fois ouvert
+MAX_COLONNES = 100
 MAX_LIGNES = 5000
 QTE_MAXI = Decimal('1000000000')
 PRIX_MAXI = Decimal('10000000000')
@@ -138,20 +149,29 @@ for _c in COLONNES:
 
 
 def _texte(valeur):
-    """Valeur d'une cellule en texte, espaces en trop retirés (12.0 → « 12 »)."""
+    """Valeur d'une cellule en texte, espaces en trop et caractères de contrôle retirés (12.0 → « 12 »)."""
     if valeur is None or isinstance(valeur, bool):
         return ''
     if isinstance(valeur, float):
         return str(int(valeur)) if valeur.is_integer() else repr(valeur)
     if hasattr(valeur, 'strftime'):
         return valeur.strftime('%d/%m/%Y')
-    return ' '.join(str(valeur).split())
+    return ' '.join(re.sub(r'[\x00-\x08\x0e-\x1f\x7f]', '', str(valeur)).split())  # \t, \n… : espaces
 
 
-def _nombre(valeur, decimales):
-    """Nombre d'une cellule : 12, 12.5, « 1 250 », « 12,5 », « 3 500 F », « 1.250,50 ». None si vide.
+# « 5.000 », « 1.250.000 » : le point sépare les milliers (groupes de 3 chiffres, sans virgule).
+MILLIERS = re.compile(r'[+-]?[1-9]\d{0,2}(\.\d{3})+')
+# « 2.500 » : 2,5 ou 2 500 ?
+POINT_DOUTEUX = re.compile(r'[+-]?[1-9]\d{0,2}\.\d{3}')
 
-    ValueError si ce n'est pas un nombre."""
+
+def _nombre(valeur, decimales, milliers=False):
+    """Nombre d'une cellule : 12, 12.5, « 1 250 », « 12,5 », « 3 500 F », « 1.250,50 », « 1.500.000 ».
+
+    None si vide, ValueError si ce n'est pas un nombre.
+    milliers (prix) : « 5.000 F » vaut 5 000 (un prix n'a jamais 3 chiffres après la virgule). Une quantité
+    « 2.500 » peut être 2,5 kg : elle reste 2,5 et analyser() la signale « à vérifier » ; « 1.500.000 », qui ne
+    peut pas être un nombre à virgule, vaut 1 500 000 partout."""
     if isinstance(valeur, bool):
         raise ValueError
     if valeur is None:
@@ -166,6 +186,8 @@ def _nombre(valeur, decimales):
             return None
         texte = re.sub(r'(?i)\s*(f\s*cfa|cfa|xof|f)\.?\s*$', '', texte)
         texte = re.sub(r"[\s']", '', texte)
+        if MILLIERS.fullmatch(texte) and (milliers or texte.count('.') > 1):
+            texte = texte.replace('.', '')
         if ',' in texte and '.' in texte:  # « 1.250,50 » ou « 1,250.50 »
             texte = texte.replace('.', '').replace(',', '.') if texte.rfind(',') > texte.rfind('.') \
                 else texte.replace(',', '')
@@ -176,7 +198,10 @@ def _nombre(valeur, decimales):
             nombre = Decimal(texte)
         except InvalidOperation:
             raise ValueError
-    return nombre.quantize(Decimal(1).scaleb(-decimales), ROUND_HALF_UP)
+    try:
+        return nombre.quantize(Decimal(1).scaleb(-decimales), ROUND_HALF_UP)
+    except InvalidOperation:  # nombre géant (1E+30) : impossible à arrondir, analyser() le refuse « trop grand »
+        return nombre
 
 
 def _tri(code):
@@ -231,14 +256,32 @@ def lire(fichier, nom):
     raise ImportImpossible('Choisissez un fichier Excel (.xlsx) ou CSV (.csv).')
 
 
+XLSX_ILLISIBLE = ("Ce fichier Excel n'a pas pu être lu. Ouvrez-le dans Excel et enregistrez-le de nouveau au "
+                  'format .xlsx.')
+
+
+def _verifier_zip(donnees):
+    """Refuse une « bombe » : un petit .xlsx qui prendrait des Go de mémoire une fois ouvert.
+
+    Les tailles annoncées dans le zip suffisent : un morceau qui en contient plus est refusé à la lecture."""
+    with zipfile.ZipFile(io.BytesIO(donnees)) as archive:
+        ouvert = sum(info.file_size for info in archive.infolist())
+    if ouvert > MAX_OCTETS_OUVERT or (ouvert > MAX_OCTETS and ouvert > TAUX_MAXI * len(donnees)):
+        raise ImportImpossible(f'Ce fichier Excel est trop gros une fois ouvert ({MAX_LIGNES} articles au plus par '
+                               'import). Copiez seulement vos articles dans le modèle à télécharger, puis '
+                               'envoyez-le.')
+
+
 def _lire_xlsx(donnees):
     from openpyxl import load_workbook
 
     try:
+        _verifier_zip(donnees)
         classeur = load_workbook(io.BytesIO(donnees), read_only=True, data_only=True)
+    except ImportImpossible:
+        raise
     except Exception:
-        raise ImportImpossible("Ce fichier Excel n'a pas pu être lu. Ouvrez-le dans Excel et enregistrez-le de "
-                               'nouveau au format .xlsx.')
+        raise ImportImpossible(XLSX_ILLISIBLE)
     try:
         premiere = None
         for feuille in classeur.worksheets:
@@ -246,7 +289,8 @@ def _lire_xlsx(donnees):
                 continue
             lignes = []
             vides = 0
-            for numero, valeurs in enumerate(feuille.iter_rows(values_only=True), start=1):
+            # Colonnes limitées : une cellule tout au bout (colonne XFD) ne remplit pas chaque ligne de 16 384 cases.
+            for numero, valeurs in enumerate(feuille.iter_rows(max_col=MAX_COLONNES, values_only=True), start=1):
                 if any(v not in (None, '') for v in valeurs):
                     lignes.append((numero, list(valeurs)))
                     vides = 0
@@ -259,6 +303,9 @@ def _lire_xlsx(donnees):
             if _entete(lignes):
                 return feuille.title, lignes
         return premiere or ('', [])
+    except Exception:  # fichier abîmé découvert en cours de lecture (XML coupé, nombre géant…)
+        journal.warning('Import : fichier Excel illisible', exc_info=True)
+        raise ImportImpossible(XLSX_ILLISIBLE)
     finally:
         classeur.close()
 
@@ -273,11 +320,15 @@ def _lire_csv(donnees):
     premiere = next((l for l in texte.splitlines() if l.strip()), '')
     separateur = max(';,\t', key=premiere.count) if any(s in premiere for s in ';,\t') else ';'
     lignes = []
-    for numero, valeurs in enumerate(csv.reader(io.StringIO(texte, newline=''), delimiter=separateur), start=1):
-        if any(v.strip() for v in valeurs):
-            lignes.append((numero, valeurs))
-        if len(lignes) > MAX_LIGNES + 20:
-            break
+    try:
+        for numero, valeurs in enumerate(csv.reader(io.StringIO(texte, newline=''), delimiter=separateur), start=1):
+            if any(v.strip() for v in valeurs):
+                lignes.append((numero, valeurs[:MAX_COLONNES]))
+            if len(lignes) > MAX_LIGNES + 20:
+                break
+    except csv.Error:  # cellule de plus de 131 072 caractères, souvent à cause d'un guillemet jamais fermé
+        raise ImportImpossible('Ce fichier CSV est mal formé (guillemet non fermé ou cellule trop longue). Ouvrez-le '
+                               'dans Excel et enregistrez-le de nouveau.')
     return lignes
 
 
@@ -417,9 +468,9 @@ def _decouper_emplacement(texte):
 def _niveau(texte, ligne):
     if not texte:
         return None
-    chiffres = re.fullmatch(r'(?i)(n|niv|niveau)?\.?\s*(\d+)', texte.strip())
+    chiffres = re.fullmatch(r'(?i)(n|niv|niveau)?\.?\s*(\d{1,6})', texte.strip())
     if not chiffres:
-        ligne.avertir(f'Niveau « {texte} » illisible : niveau laissé vide.')
+        ligne.avertir(f'Niveau « {texte[:30]} » illisible : niveau laissé vide.')
         return None
     niveau = int(chiffres.group(2))
     if not 1 <= niveau <= NIVEAU_MAXI:
@@ -566,19 +617,24 @@ def analyser(lignes_lues, nom_fichier='', feuille=''):
         for cle, decimales, maxi, libelle in (('stock', 3, QTE_MAXI, 'Stock de départ'),
                                               ('prix', 2, PRIX_MAXI, 'Prix unitaire'),
                                               ('stock_min', 3, QTE_MAXI, 'Stock minimum')):
+            brut = texte.get(cle, '')[:30]
             try:
-                valeur = _nombre(cellules.get(cle), decimales)
+                valeur = _nombre(cellules.get(cle), decimales, milliers=cle == 'prix')
             except ValueError:
-                l.refuser(f'{libelle} : « {texte.get(cle)} » n\'est pas un nombre.')
+                l.refuser(f'{libelle} : « {brut} » n\'est pas un nombre.')
                 continue
             if valeur is None:
                 continue
             if valeur < 0:
-                l.refuser(f'{libelle} négatif ({texte.get(cle)}).')
+                l.refuser(f'{libelle} négatif ({brut}).')
             elif valeur > maxi:
-                l.refuser(f'{libelle} trop grand ({texte.get(cle)}).')
+                l.refuser(f'{libelle} trop grand ({brut}).')
             else:
                 setattr(l, cle, valeur)
+                if cle != 'prix' and isinstance(cellules.get(cle), str) and \
+                        POINT_DOUTEUX.fullmatch(re.sub(r"[\s']", '', brut)):
+                    l.avertir(f'{libelle} « {brut} » lu {quantite(valeur)} : pour {quantite(valeur * 1000)}, '
+                              f'écrivez {valeur * 1000:.0f} sans point.')
 
         for cle, longueur, libelle in (('mots_cles', 255, 'Mots-clés'),
                                        ('reference_fabricant', 100, 'Référence fabricant')):
@@ -835,6 +891,8 @@ def modele():
 
     from config import produit
 
+    from .exports import sans_controle
+
     bleu, vert, gris = (PatternFill('solid', fgColor=c) for c in ('1F497D', '138A3C', 'EEF1F5'))
     blanc_gras = Font(bold=True, color='FFFFFF')
     largeurs = {'code': 16, 'designation': 42, 'categorie': 18, 'unite': 10, 'stock': 16, 'prix': 15,
@@ -865,7 +923,7 @@ def modele():
     def ecrire(*valeurs, gras=False, titre=False, fond=None):
         nonlocal ligne
         for j, v in enumerate(valeurs, start=1):
-            cellule = aide.cell(ligne, j, v)
+            cellule = aide.cell(ligne, j, sans_controle(v) if isinstance(v, str) else v)  # noms des blocs du plan
             cellule.alignment = Alignment(wrap_text=True, vertical='top')
             if titre:
                 cellule.font = Font(bold=True, size=14, color='1F497D')

@@ -21,6 +21,13 @@ FORMATS = {
     DATE_HEURE: ('dd/mm/yyyy hh:mm', 'dd/mm/yyyy hh:mm'),
 }
 LIGNE_ENTETES = 5  # lignes 1 à 3 : titre ; ligne 4 : vide
+# Caractères de contrôle (\x07…) refusés dans un fichier Excel (les mêmes que ILLEGAL_CHARACTERS_RE d'openpyxl) :
+# un seul, dans une désignation ou une recherche, ferait échouer tout l'export.
+INTERDITS = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def sans_controle(texte):
+    return INTERDITS.sub('', texte)
 
 
 class Gras(list):
@@ -41,6 +48,8 @@ def feuille(titre, colonnes, lignes, filtres='', pied=()):
 
 
 def _valeur(v, format_):
+    if isinstance(v, str):
+        return sans_controle(v)
     if isinstance(v, datetime):
         # Excel ne connaît pas les fuseaux horaires : heure locale, à la seconde près.
         return (timezone.localtime(v) if timezone.is_aware(v) else v).replace(tzinfo=None, microsecond=0)
@@ -61,15 +70,16 @@ def _remplir(ws, f, societe, edition):
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
 
-    colonnes = f['colonnes']
+    colonnes = [(sans_controle(entete), format_) for entete, format_ in f['colonnes']]
     nb = len(colonnes)
     derniere = get_column_letter(nb)
-    ws.title = re.sub(r'[\\/?*\[\]:]', '-', f['titre'])[:31]
-    ws['A1'] = societe
+    titre = sans_controle(f['titre'])
+    ws.title = re.sub(r'[\\/?*\[\]:]', '-', titre)[:31]
+    ws['A1'] = sans_controle(societe)
     ws['A1'].font = Font(bold=True, size=14)
-    ws['A2'] = f['titre'] + (f' · {f["filtres"]}' if f['filtres'] else '')
+    ws['A2'] = sans_controle(f['titre'] + (f' · {f["filtres"]}' if f['filtres'] else ''))
     ws['A2'].font = Font(bold=True, size=12, color='1F497D')
-    ws['A3'] = edition
+    ws['A3'] = sans_controle(edition)
     ws['A3'].font = Font(italic=True, size=9, color='5F6B7A')
     for cellule in ('A1', 'A2', 'A3'):
         ws[cellule].data_type = 's'  # jamais une formule, même si le nom commence par « = »
@@ -128,7 +138,7 @@ def _remplir(ws, f, societe, edition):
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.page_margins.left = ws.page_margins.right = 0.4
     ws.page_margins.top = ws.page_margins.bottom = 0.6
-    ws.oddFooter.left.text = f['titre'][:100].replace('&', '&&')
+    ws.oddFooter.left.text = titre[:100].replace('&', '&&')
     ws.oddFooter.right.text = 'Page &P / &N'
 
 

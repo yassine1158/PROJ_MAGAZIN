@@ -1681,6 +1681,14 @@ class CreationRapideArticleTests(Base):
         self.assertContains(page, 'id="creer-article"')
         self.assertContains(page, '<option value="FEUILLE">Feuille</option>', html=True)
 
+    def test_caracteres_de_controle_retires(self):
+        rep = self.creer(designation='Filtre\u0007 huile\x1b\tmoteur', unite='U', categorie='Filtres\x00')
+        self.assertEqual(rep.status_code, 201)
+        article = Article.objects.get(pk=rep.json()['article']['id'])
+        self.assertEqual((article.designation, article.categorie.nom), ('Filtre huile moteur', 'Filtres'))
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('stock:articles') + '?format=excel').status_code, 200)
+
     def test_saisies_refusees(self):
         rep = self.creer(designation='', unite='U', categorie='')
         self.assertEqual(rep.status_code, 400)
@@ -1726,14 +1734,16 @@ class RetourChantierBase(JustesseBase):
         self.route = Chantier.objects.create(nom='Route')
         self.entree(self.ciment, 100, 5000)
 
-    def sortir(self, *lignes, chantier=None):
-        bon = BonSortie.objects.create(chantier=chantier or self.chantier, engin=self.engin, demandeur='Ali')
+    def sortir(self, *lignes, chantier=None, le=None):
+        bon = BonSortie.objects.create(chantier=chantier or self.chantier, engin=self.engin, demandeur='Ali',
+                                       **({'date': le} if le else {}))
         for article, qte in lignes:
             LigneSortie.objects.create(bon=bon, article=article, quantite=qte)
         return services.valider(bon, self.user)
 
-    def rendre(self, *lignes, chantier=None, valider=True):
-        bon = BonRetour.objects.create(chantier=chantier or self.chantier, engin=self.engin, rapporte_par='Koffi')
+    def rendre(self, *lignes, chantier=None, valider=True, le=None, sortie=None):
+        bon = BonRetour.objects.create(chantier=chantier or self.chantier, engin=self.engin, rapporte_par='Koffi',
+                                       sortie=sortie, **({'date': le} if le else {}))
         for article, qte in lignes:
             LigneRetour.objects.create(bon=bon, article=article, quantite=qte)
         return services.valider(bon, self.user) if valider else bon
@@ -1754,18 +1764,20 @@ class RetourChantierStockTests(RetourChantierBase):
         self.assertEqual(second.numero, f'BR-{second.date:%Y}-{second.pk:05d}')
         self.assertTrue(BonEntree.objects.get().numero.startswith('BE-'))
 
-    def test_retour_partiel_remonte_le_stock_sans_changer_le_prix_moyen(self):
+    def test_retour_partiel_remonte_le_stock_au_cout_de_la_sortie(self):
         self.sortir((self.ciment, 30))
         self.entree(self.ciment, 50, 6000)  # 70 à 5000 + 50 à 6000 → 120 à 5416,67
         self.ciment.refresh_from_db()
         self.assertEqual(self.ciment.prix_moyen, Decimal('5416.67'))
         bon = self.rendre((self.ciment, 10))
         self.ciment.refresh_from_db()
-        self.assertEqual((self.ciment.stock, self.ciment.prix_moyen), (130, Decimal('5416.67')))
+        # Les 10 sacs reviennent au prix où ils sont sortis : (120 × 5416,67 + 10 × 5000) / 130.
+        self.assertEqual((self.ciment.stock, self.ciment.prix_moyen), (130, Decimal('5384.62')))
         self.assertEqual(bon.statut, BonRetour.VALIDE)
-        self.assertEqual(bon.lignes.get().prix_unitaire, Decimal('5416.67'))  # figé au prix moyen du moment
+        self.assertEqual(bon.lignes.get().prix_unitaire, Decimal('5000.00'))  # coût de la sortie
         mvt = MouvementStock.objects.get(type=MouvementStock.RETOUR)
-        self.assertEqual((mvt.quantite, mvt.stock_apres, mvt.prix_unitaire), (10, 130, Decimal('5416.67')))
+        self.assertEqual((mvt.quantite, mvt.stock_apres, mvt.prix_unitaire), (10, 130, Decimal('5000.00')))
+        self.assertEqual(mvt.prix_moyen_apres, Decimal('5384.62'))
         self.assertEqual((mvt.chantier, mvt.engin, mvt.reference), (self.chantier, self.engin, bon.numero))
         self.assertEqual(self.consommation(self.ciment), 20)  # 30 sortis − 10 revenus
 
@@ -1944,6 +1956,7 @@ class RetourChantierEcransTests(RetourChantierBase):
 
         from django.utils import timezone
 
+        self.entree_le(self.il_y_a(days=3), self.ciment, 10, 5000)  # du stock à cette date
         ancienne = self.sortie_le(self.il_y_a(days=2), self.ciment, 3)
         avant = (timezone.localdate() - timedelta(days=4)).isoformat()
         rep = self.rendre_ecran(sortie=ancienne.pk, date=avant)
@@ -2012,6 +2025,276 @@ class RetourChantierEcransTests(RetourChantierBase):
         self.assertEqual([(b.numero, t) for b, t in trouve.context['bons']], [(bon.numero, 'retour')])
         trouve = self.client.get(reverse('stock:bons'), {'q': 'koffi', 'type': 'retour'})
         self.assertEqual(len(trouve.context['bons']), 1)
+
+
+# =========================================================
+# Bons saisis après coup : inventaire déjà validé, stock et prix moyen à chaque date, coût des retours
+# =========================================================
+from datetime import datetime, time, timedelta  # noqa: E402
+
+from django.utils import timezone  # noqa: E402
+
+from . import rapports  # noqa: E402
+
+
+class AntidateBase(RetourChantierBase):
+    def jour(self, decalage):
+        return timezone.localdate() + timedelta(days=decalage)
+
+    def historique(self, article):
+        return list(MouvementStock.objects.filter(article=article).order_by('date', 'id'))
+
+    def ligne_etat(self, decalage, code):
+        donnees = rapports.etat_a_date(self.jour(decalage))
+        return next((l for g in donnees['groupes'] for l in g['lignes'] if l['code'] == code), None)
+
+    def verifier_historique(self, article):
+        """Stock jamais négatif ; prix moyen après chaque mouvement = calcul repris depuis le début dans l'ordre des
+        dates (comme la migration 0007, retours compris) ; prix moyen et stock de l'article = ceux du dernier."""
+        historique, prix_moyen, attendus = self.historique(article), Decimal('0'), []
+        for m in historique:
+            if m.type in services.TYPES_PRIX_MOYEN:
+                prix_moyen = services._cmp_mouvement(m.stock_apres - m.quantite, prix_moyen, m.quantite,
+                                                     m.prix_unitaire)
+            attendus.append(prix_moyen)
+        self.assertEqual([m.prix_moyen_apres for m in historique], attendus)
+        article.refresh_from_db()
+        self.assertEqual((article.stock, article.prix_moyen), (historique[-1].stock_apres, attendus[-1]))
+        self.assertTrue(all(m.stock_apres >= 0 for m in historique))
+
+
+class BonAvantInventaireTests(AntidateBase):
+    """Bon daté avant un comptage déjà validé : refusé, sinon l'écart trouvé serait compté deux fois."""
+
+    def setUp(self):
+        super().setUp()
+        self.entree_le(self.il_y_a(days=5), self.filtre, 100, 1000)
+        self.sortir((self.filtre, 20), le=self.il_y_a(days=4))  # 20 partis sur le chantier Pont
+        # Une sortie papier de 10, datée d'avant-hier, a été oubliée : le comptage d'hier trouve 70 au lieu de 80.
+        self.inv = services.valider(self.inventaire((self.filtre, Decimal('70'), self.il_y_a(days=1))), self.user)
+        self.assertEqual(self.stock(self.filtre), 70)
+
+    def test_sortie_oubliee_datee_avant_le_comptage(self):
+        bon = BonSortie.objects.create(date=self.il_y_a(days=2), chantier=self.chantier, demandeur='Ali')
+        LigneSortie.objects.create(bon=bon, article=self.filtre, quantite=10)
+        with self.assertRaises(services.StockError) as erreur:
+            services.valider(bon, self.user)
+        message = ' '.join(erreur.exception.messages)
+        self.assertIn(f"l'inventaire {self.inv.numero} a compté « Filtre à huile Volvo » à ce moment-là", message)
+        self.assertIn('datez le bon après ce comptage', message)
+        bon.refresh_from_db()
+        self.assertEqual(bon.statut, BonSortie.BROUILLON)
+        self.assertEqual(self.stock(self.filtre), 70)  # et non 60 : le manque est déjà dans l'écart du comptage
+        # Daté après le comptage, le bon passe, et le comptage garde sa quantité dans l'historique.
+        bon.date = timezone.now()
+        bon.save()
+        services.valider(bon, self.user)
+        self.assertEqual(self.stock(self.filtre), 60)
+        self.assertEqual(MouvementStock.objects.get(type=MouvementStock.INVENTAIRE).stock_apres, 70)
+        self.verifier_historique(self.filtre)
+
+    def test_entree_et_retour_dates_avant_le_comptage(self):
+        with self.assertRaisesMessage(services.StockError, self.inv.numero):
+            self.entree_le(self.il_y_a(days=2), self.filtre, 5, 1000)
+        with self.assertRaisesMessage(services.StockError, self.inv.numero):
+            self.rendre((self.filtre, 5), le=self.il_y_a(days=2))
+        self.assertEqual(self.stock(self.filtre), 70)
+        self.rendre((self.filtre, 5))  # daté d'aujourd'hui : après le comptage
+        self.assertEqual(self.stock(self.filtre), 75)
+
+    def test_inventaire_pas_encore_valide_ne_gene_pas(self):
+        # Même oubli sur le ciment, mais la sortie est saisie avant la validation du comptage : même résultat.
+        self.entree_le(self.il_y_a(days=3), self.ciment, 10, 5000)
+        comptage = self.inventaire((self.ciment, Decimal('5'), self.il_y_a(days=1)))
+        self.sortie_le(self.il_y_a(days=2), self.ciment, 5)
+        services.valider(comptage, self.user)
+        self.assertEqual(self.stock(self.ciment), 105)  # 5 comptés + les 100 sacs entrés aujourd'hui
+
+    def test_message_a_l_ecran(self):
+        self.client.force_login(self.magasinier)
+        rep = self.client.post(reverse('stock:sortie'), {
+            'chantier': 'Pont', 'demandeur': 'Ali', 'date': self.jour(-2).isoformat(),
+            'article': [self.filtre.pk], 'quantite': ['10']})
+        self.assertContains(rep, self.inv.numero)
+        self.assertContains(rep, 'datez le bon après ce comptage')
+        self.assertEqual(BonSortie.objects.count(), 1)  # seulement celle du début
+        self.assertEqual(self.stock(self.filtre), 70)
+
+
+class PrixMoyenHistoriqueTests(AntidateBase):
+    """Bon saisi après coup : le prix moyen des mouvements plus récents est recalculé dans l'ordre des dates."""
+
+    def test_entree_oubliee_revalorise_les_mouvements_suivants(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 10, 100)
+        self.sortie_le(self.il_y_a(days=2), self.filtre, 10)
+        self.entree_le(self.il_y_a(days=5), self.filtre, 1000, 5000)  # bon de fin de mois saisi le mois suivant
+        historique = self.historique(self.filtre)
+        self.assertEqual([(m.type, m.stock_apres) for m in historique],
+                         [('ENTREE', 10), ('ENTREE', 1010), ('SORTIE', 1000)])
+        # (10 × 100 + 1000 × 5000) / 1010 = 4951,49 après l'entrée, et encore après la sortie.
+        self.assertEqual([m.prix_moyen_apres for m in historique], [100, Decimal('4951.49'), Decimal('4951.49')])
+        self.verifier_historique(self.filtre)
+        hier = self.ligne_etat(-1, 'FH-01')
+        self.assertEqual((hier['qte'], hier['pm'], hier['valeur'], hier['approx']),
+                         (1000, Decimal('4951.49'), Decimal('4951490'), False))  # et non 100 000 FCFA
+        self.assertEqual(self.ligne_etat(-6, 'FH-01')['valeur'], 1000)
+        fiche = rapports.fiche_stock(self.filtre, au=self.jour(-1))
+        self.assertEqual((fiche['stock_fin'], fiche['valeur_fin']), (1000, Decimal('4951490')))
+
+    def test_entree_oubliee_avant_une_entree_plus_recente(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 10, 100)
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 500)  # prix moyen 300
+        self.entree_le(self.il_y_a(days=5), self.filtre, 20, 400)
+        # Dans l'ordre des dates : 10 à 100 + 20 à 400 → 300, puis + 10 à 500 → (30 × 300 + 10 × 500) / 40 = 350.
+        self.assertEqual([m.prix_moyen_apres for m in self.historique(self.filtre)], [100, 300, 350])
+        self.verifier_historique(self.filtre)
+
+    def test_sortie_oubliee_au_prix_moyen_de_son_jour(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 10, 100)
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 300)  # prix moyen 200
+        sortie = self.sortie_le(self.il_y_a(days=5), self.filtre, 5)
+        self.assertEqual(sortie.lignes.get().prix_unitaire, 100)  # prix moyen de ce jour-là
+        # Hier : 5 à 100 + 10 à 300 → 233,33 ; la valeur du stock vaut bien 1000 + 3000 − 500.
+        self.assertEqual([m.prix_moyen_apres for m in self.historique(self.filtre)],
+                         [100, 100, Decimal('233.33')])
+        self.verifier_historique(self.filtre)
+
+    def test_historique_juste_avec_retours_et_annulations(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 50, 1000)
+        self.sortir((self.filtre, 20), le=self.il_y_a(days=8))
+        self.entree_le(self.il_y_a(days=6), self.filtre, 30, 2000)
+        self.sortir((self.filtre, 10), le=self.il_y_a(days=3))
+        retour = self.rendre((self.filtre, 15), le=self.il_y_a(days=4))
+        self.assertEqual(retour.lignes.get().prix_unitaire, 1000)  # coût de la sortie, pas le prix moyen du jour
+        self.entree(self.filtre, 10, 0)  # sans prix
+        oubliee = self.entree_le(self.il_y_a(days=2), self.filtre, 5, 3000)
+        self.verifier_historique(self.filtre)
+        services.annuler(oubliee, self.user, 'Doublon')
+        self.verifier_historique(self.filtre)
+
+    def test_ancien_historique_sans_prix_moyen(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 10, 100)
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 300)  # prix moyen 200
+        # Mouvements enregistrés avant la mise à jour qui a ajouté le prix moyen après chaque mouvement.
+        MouvementStock.objects.filter(article=self.filtre).update(prix_moyen_apres=None)
+        self.entree_le(self.il_y_a(days=5), self.filtre, 20, 400)
+        self.filtre.refresh_from_db()
+        self.assertEqual(self.filtre.prix_moyen, 300)  # calcul sur le stock actuel : (20 × 200 + 20 × 400) / 40
+        self.assertFalse(MouvementStock.objects.filter(article=self.filtre, prix_moyen_apres__isnull=False).exists())
+        self.assertTrue(self.ligne_etat(-1, 'FH-01')['approx'])  # signalé, et non faux sans le dire
+
+
+class SortieAntidateeTests(AntidateBase):
+    """Bon daté dans le passé : contrôlé sur le stock de ce jour-là, l'historique ne devient jamais négatif."""
+
+    def test_sortie_datee_avant_l_arrivee_du_stock(self):
+        self.entree_le(self.il_y_a(days=1), self.filtre, 10, 5000)
+        bon = BonSortie.objects.create(date=self.il_y_a(days=3), chantier=self.chantier, demandeur='Ali')
+        LigneSortie.objects.create(bon=bon, article=self.filtre, quantite=6)
+        with self.assertRaises(services.StockError) as erreur:
+            services.valider(bon, self.user)
+        self.assertEqual(erreur.exception.messages, [
+            f"Filtre à huile Volvo : le {self.jour(-3):%d/%m/%Y}, il n'en restait plus, vous en demandez 6."])
+        self.assertEqual(self.stock(self.filtre), 10)
+        self.assertFalse(MouvementStock.objects.filter(type=MouvementStock.SORTIE).exists())
+        self.assertEqual(rapports.etat_a_date(self.jour(-2))['total'], 0)  # et non −30 000 FCFA
+
+    def test_sortie_qui_rendrait_negative_une_sortie_plus_recente(self):
+        self.entree_le(self.il_y_a(days=5), self.filtre, 10, 1000)
+        self.sortie_le(self.il_y_a(days=1), self.filtre, 8)  # il en reste 2
+        with self.assertRaises(services.StockError) as erreur:
+            self.sortie_le(self.il_y_a(days=3), self.filtre, 5)
+        self.assertEqual(erreur.exception.messages, [
+            f'Filtre à huile Volvo : le {self.jour(-3):%d/%m/%Y}, vous pouvez en sortir 2 unités au plus '
+            '(le reste est sorti ensuite), vous en demandez 5.'])
+        self.sortie_le(self.il_y_a(days=3), self.filtre, 2)
+        self.assertEqual([m.stock_apres for m in self.historique(self.filtre)], [10, 8, 0])
+        self.verifier_historique(self.filtre)
+
+    def test_retour_date_avant_la_sortie_du_chantier(self):
+        self.sortir((self.ciment, 30))  # aujourd'hui
+        with self.assertRaises(services.StockError) as erreur:
+            self.rendre((self.ciment, 10), le=self.il_y_a(days=3))
+        self.assertIn("Ciment CPJ 45 sac 50 kg : à cette date, rien n'était parti sur ce chantier (ou tout était "
+                      "déjà revenu), vous en rendez 10.", erreur.exception.messages)
+        self.assertEqual(self.stock(self.ciment), 70)
+        self.rendre((self.ciment, 10))  # daté d'aujourd'hui : accepté
+        self.assertEqual(self.stock(self.ciment), 80)
+
+    def test_retour_antidate_ne_rend_pas_impossible_un_retour_suivant(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 50, 1000)
+        self.sortir((self.filtre, 30), le=self.il_y_a(days=3))
+        self.rendre((self.filtre, 25), le=self.il_y_a(days=1))  # il en reste 5 sur le chantier
+        self.sortir((self.filtre, 20))  # et 25 depuis aujourd'hui
+        with self.assertRaises(services.StockError) as erreur:
+            self.rendre((self.filtre, 10), le=self.il_y_a(days=2))
+        self.assertIn("Filtre à huile Volvo : à cette date, vous pouvez en rendre 5 unités au plus (d'autres "
+                      "retours ont été faits ensuite), vous en rendez 10.", erreur.exception.messages)
+        self.rendre((self.filtre, 5), le=self.il_y_a(days=2))
+        self.assertEqual(services.reste_sur_chantier(self.chantier)[self.filtre.pk], 20)
+        self.assertEqual(services.reste_sur_chantier(self.chantier, jusqu_au=self.il_y_a(days=1, hours=-1))
+                         [self.filtre.pk], 0)
+        self.verifier_historique(self.filtre)
+
+    def test_retour_du_meme_jour_passe_apres_la_sortie(self):
+        self.entree_le(self.il_y_a(days=10), self.filtre, 50, 1000)
+        sortie = self.sortir((self.filtre, 30), le=self.il_y_a(days=1))
+        # Sortie enregistrée hier en fin de journée : un retour daté d'hier passe après elle dans l'historique.
+        fin_hier = timezone.make_aware(datetime.combine(self.jour(0), time.min)) - timedelta(seconds=1)
+        MouvementStock.objects.filter(reference=sortie.numero).update(date=fin_hier)
+        self.rendre((self.filtre, 10), le=self.il_y_a(days=1))
+        self.assertEqual([m.type for m in self.historique(self.filtre)], ['ENTREE', 'SORTIE', 'RETOUR'])
+        self.assertGreaterEqual(MouvementStock.objects.get(type=MouvementStock.RETOUR).date, fin_hier)
+        self.verifier_historique(self.filtre)
+
+
+class CoutDuRetourTests(AntidateBase):
+    """Retour de chantier valorisé au coût de la sortie : un chantier qui rend tout ne coûte rien."""
+
+    def test_retour_complet_apres_un_changement_de_prix(self):
+        self.entree(self.filtre, 20, 5000)
+        self.sortir((self.filtre, 10))  # 50 000 FCFA sur le chantier Pont
+        self.entree(self.filtre, 10, 8000)  # prix moyen : (10 × 5000 + 10 × 8000) / 20 = 6500
+        bon = self.rendre((self.filtre, 10))
+        self.assertEqual(bon.lignes.get().prix_unitaire, Decimal('5000.00'))
+        self.assertEqual(MouvementStock.objects.get(type=MouvementStock.RETOUR).prix_unitaire, Decimal('5000.00'))
+        self.filtre.refresh_from_db()
+        # Les 10 reviennent à 5000 et entrent dans le prix moyen : (20 × 6500 + 10 × 5000) / 30 = 6000.
+        self.assertEqual((self.filtre.stock, self.filtre.prix_moyen), (30, Decimal('6000.00')))
+        aujourd_hui = timezone.localdate()
+        self.assertEqual(rapports.consommation(aujourd_hui, aujourd_hui), {'groupes': [], 'total': 0, 'nb_lignes': 0})
+        self.assertEqual(rapports.total_sorties(aujourd_hui), 0)  # et non −15 000 FCFA
+        self.assertEqual(rapports.par_chantier(aujourd_hui), [])
+        # Annulation du retour : calcul inverse, comme pour une entrée.
+        services.annuler(bon, self.user, 'Erreur')
+        self.filtre.refresh_from_db()
+        self.assertEqual((self.filtre.stock, self.filtre.prix_moyen), (20, Decimal('6500.00')))
+        self.assertEqual(rapports.total_sorties(aujourd_hui), 50000)
+        self.verifier_historique(self.filtre)
+
+    def test_prix_de_la_sortie_d_origine_sinon_cout_moyen_du_chantier(self):
+        self.entree(self.filtre, 20, 5000)
+        self.sortir((self.filtre, 10))  # à 5000
+        self.entree(self.filtre, 10, 8000)  # prix moyen 6500
+        seconde = self.sortir((self.filtre, 10))  # à 6500
+        self.assertEqual(self.rendre((self.filtre, 4), sortie=seconde).lignes.get().prix_unitaire, 6500)
+        # Sans sortie d'origine : coût moyen de ce qui reste sur le chantier, (50 000 + 65 000 − 26 000) / 16.
+        self.assertEqual(self.rendre((self.filtre, 4)).lignes.get().prix_unitaire, Decimal('5562.50'))
+        self.rendre((self.filtre, 12))
+        aujourd_hui = timezone.localdate()
+        self.assertEqual(rapports.consommation(aujourd_hui, aujourd_hui)['groupes'], [])
+        self.assertEqual(rapports.total_sorties(aujourd_hui), 0)
+        self.verifier_historique(self.filtre)
+
+    def test_reste_d_arrondi_sans_ligne_dans_la_consommation(self):
+        self.entree(self.filtre, 1, 100)
+        self.sortir((self.filtre, 1))  # à 100
+        self.entree(self.filtre, 2, 101)
+        self.sortir((self.filtre, 2))  # à 101
+        self.assertEqual(self.rendre((self.filtre, 3)).lignes.get().prix_unitaire, Decimal('100.67'))  # 302 / 3
+        aujourd_hui = timezone.localdate()
+        self.assertEqual(rapports.consommation(aujourd_hui, aujourd_hui)['groupes'], [])
+        self.assertEqual(rapports.par_chantier(aujourd_hui), [])
 
 
 # =========================================================
@@ -2315,6 +2598,42 @@ class InventaireValidationTests(InventaireEcransBase):
         self.assertContains(rep, 'vérifiez le récapitulatif')
         self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
         self.assertEqual(self.stock(self.ciment), 50)
+
+    def compter_10_puis_sortir_4(self):
+        """10 filtres comptés, puis 4 sortis ; le responsable ouvre le récapitulatif : filtre sans écart."""
+        self.client.force_login(self.magasinier)
+        self.compter(self.inv, self.filtre, '10')
+        services.valider(self.sortie(self.filtre, 4), self.user)
+        self.client.force_login(self.user)
+        page = self.client.get(self.url)
+        self.assertNotIn('FH-01', [e['article'].code for e in page.context['ecarts']])
+        self.client.force_login(self.magasinier)
+        return page.context['empreinte']
+
+    def test_meme_quantite_renvoyee_garde_l_heure_du_comptage(self):
+        empreinte = self.compter_10_puis_sortir_4()
+        compte_le = self.inv.lignes.get(article=self.filtre).compte_le
+        # Le téléphone renvoie « 10 » (connexion retrouvée) : ce n'est pas un nouveau comptage.
+        self.compter(self.inv, self.filtre, '10')
+        self.compter(self.inv, self.filtre, '10', en_direct=False)
+        self.assertEqual(self.inv.lignes.get(article=self.filtre).compte_le, compte_le)
+        self.client.force_login(self.user)
+        self.client.post(self.url, {'empreinte': empreinte})
+        self.assertEqual(Inventaire.objects.get().statut, 'VALIDE')
+        self.assertEqual(self.stock(self.filtre), 6)  # la sortie faite après le comptage n'est pas effacée
+        self.assertFalse(MouvementStock.objects.filter(type=MouvementStock.INVENTAIRE, article=self.filtre).exists())
+
+    def test_recompte_pendant_la_lecture_du_responsable(self):
+        empreinte = self.compter_10_puis_sortir_4()
+        # Recompté après la sortie (9 par erreur, puis 10) : même quantité, mais le stock juste devient 10.
+        self.compter(self.inv, self.filtre, '9')
+        self.compter(self.inv, self.filtre, '10')
+        self.client.force_login(self.user)
+        rep = self.client.post(self.url, {'empreinte': empreinte})
+        self.assertContains(rep, 'vérifiez le récapitulatif')
+        self.assertEqual(Inventaire.objects.get().statut, 'BROUILLON')
+        self.assertEqual(self.stock(self.filtre), 6)
+        self.assertEqual({e['article'].code: e['ecart'] for e in rep.context['ecarts']}['FH-01'], 4)  # visible
 
     def test_comptage_impossible_bloque_la_validation(self):
         services.valider(self.sortie(self.filtre, 9), self.user)  # 8 comptés, mais 9 sortis depuis

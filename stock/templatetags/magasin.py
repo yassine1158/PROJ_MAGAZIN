@@ -39,6 +39,7 @@ ICONES = {
     'plus': '<path d="M12 5v14"/><path d="M5 12h14"/>',
     'poubelle': '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>',
     'imprimer': '<path d="M6 9V2h12v7"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v8H6z"/>',
+    'demande': '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V3h6v1"/><path d="M9 10h6"/><path d="M9 14h6"/><path d="M9 18h3"/>',
     'qr': '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="3" y="15" width="6" height="6" rx="1"/><path d="M15 15h2v2h-2z"/><path d="M19 15h2"/><path d="M15 21h6v-2"/><path d="M12 3v6"/><path d="M12 12h9"/><path d="M12 12v9"/><path d="M3 12h5"/>',
     'modifier': '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
     'menu': '<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>',

@@ -411,3 +411,50 @@ def etiquettes_etageres(etageres, base, nom_fichier='etiquettes_etageres'):
     c.showPage()
     c.save()
     return reponse
+
+
+# =========================================================
+# Affiche « Demande de pièces » (A4, à coller à l'atelier)
+# =========================================================
+
+def lien_demande(base):
+    return base + reverse('stock:demande')
+
+
+def affiche_demande(base, nom_fichier='affiche_demande_pieces'):
+    """Une page A4 : grand QR code du formulaire de demande de pièces, et le mode d'emploi en trois lignes."""
+    reponse, c = _document(nom_fichier, 'Demande de pièces')
+    largeur, hauteur = A4
+    p = Parametres.actuels()
+    fond, texte = couleurs_bandeau(p.couleur or '#1f497d')
+    c.setFillColor(colors.HexColor(fond))
+    c.rect(0, hauteur - 48 * mm, largeur, 48 * mm, stroke=0, fill=1)
+    c.setFillColor(colors.HexColor(texte))
+    c.setFont(GRAS, 36)
+    c.drawCentredString(largeur / 2, hauteur - 26 * mm, 'DEMANDE DE PIÈCES')
+    c.setFont(NORMAL, 15)
+    c.drawCentredString(largeur / 2, hauteur - 38 * mm, p.nom_societe or 'Magasin')
+
+    lien = lien_demande(base)
+    cote = 120 * mm
+    bas = hauteur - 60 * mm - cote
+    _dessiner_qr(c, lien, (largeur - cote) / 2, bas, cote)
+
+    c.setFillColor(NOIR)
+    y = bas - 16 * mm
+    for numero, etape in enumerate(['Connectez le téléphone au Wi-Fi du magasin.',
+                                    'Scannez ce QR code avec l\'appareil photo.',
+                                    'Remplissez la demande : le magasin la reçoit tout de suite.'], start=1):
+        c.setFont(GRAS, 16)
+        c.drawString(30 * mm, y, f'{numero}.')
+        c.setFont(NORMAL, 16)
+        c.drawString(40 * mm, y, etape)
+        y -= 11 * mm
+    c.setFillColor(GRIS)
+    c.setFont(NORMAL, 10)
+    c.drawCentredString(largeur / 2, 18 * mm, f'Adresse : {lien}')
+    c.drawCentredString(largeur / 2, 12 * mm, 'Si le QR code ne s\'ouvre plus, réimprimez cette affiche '
+                        '(Demandes de pièces › Affiche QR code).')
+    c.showPage()
+    c.save()
+    return reponse

@@ -133,4 +133,10 @@
   </form>
   {% endif %}
 </main>
+{% if nouveau and request.GET.imprimer == '1' %}
+<script>
+  // Demande de pièces validée : le bon de sortie s'imprime tout de suite (le bouton reste là si cela échoue).
+  window.addEventListener('load', () => { const b = document.getElementById('imprimer-bon'); if (b) b.click(); });
+</script>
+{% endif %}
 {% endblock %}

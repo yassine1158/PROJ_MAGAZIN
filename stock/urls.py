@@ -2,7 +2,7 @@ from django.contrib.auth.views import LogoutView
 from django.urls import path
 from django.views.generic import RedirectView
 
-from . import views, views_magasin as v, views_reglages as r
+from . import views, views_demandes as d, views_magasin as v, views_reglages as r
 
 app_name = 'stock'
 
@@ -33,6 +33,16 @@ urlpatterns = [
     path('entree/', v.entree, name='entree'),
     path('sortie/', v.sortie, name='sortie'),
     path('retour/', v.retour, name='retour'),
+    # Demandes de pièces : formulaire du QR code de l'atelier (sans compte), puis traitement au magasin.
+    path('demande/', d.demande, name='demande'),
+    path('demande/pieces/', d.demande_articles, name='demande_articles'),
+    path('demande/suivi/<str:jeton>/', d.demande_suivi, name='demande_suivi'),
+    path('demandes/', d.demandes, name='demandes'),
+    path('demandes/affiche/', d.demandes_affiche, name='demandes_affiche'),
+    path('demandes/<int:pk>/', d.demande_detail, name='demande_detail'),
+    path('demandes/<int:pk>/pdf/', d.demande_pdf, name='demande_pdf'),
+    path('demandes/<int:pk>/rouvrir/', d.demande_annuler_refus, name='demande_rouvrir'),
+    path('api/demandes/', d.api_demandes, name='api_demandes'),
     path('bons/', v.bons, name='bons'),
     path('bons/<str:type_>/<int:pk>/', v.bon_detail, name='bon_detail'),
     path('bons/<str:type_>/<int:pk>/annuler/', v.bon_annuler, name='bon_annuler'),

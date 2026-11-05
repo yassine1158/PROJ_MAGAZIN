@@ -1,11 +1,10 @@
 # Nouveautés de cette version : montrées dans le logiciel (bouton « Nouveautés ») et sur la page de la version.
 # Une ligne par nouveauté, en français simple. Les lignes qui commencent par # sont ignorées.
-Inventaire : tout le magasin, un bloc ou une étagère ; fiche de comptage imprimée ou comptage au téléphone ; écarts en quantité et en valeur avant validation.
-Import des articles depuis Excel, avec modèle à télécharger et aperçu des erreurs avant l'import.
-Retour de chantier : la marchandise non utilisée revient en stock et la consommation du chantier baisse.
-Étiquettes avec QR code pour les articles et les étagères, prêtes à imprimer.
-Nouveaux rapports : journal des mouvements, stock à une date, articles à commander, fiche de stock par article.
-Historique des bons plus rapide, avec recherche et filtres par date et par type.
-Premiers pas guidés à la première ouverture, avec magasin d'exemple à essayer puis effacer.
-Plan du magasin : éditeur plus pratique (tout le plan visible, annuler et refaire) et 3D plus fluide.
-Corrections et améliorations sur les ordinateurs et les téléphones.
+Demandes de pièces par QR code : l'atelier scanne l'affiche avec un téléphone et demande ses pièces, sans compte.
+Le magasin reçoit une alerte, valide en un clic (la sortie de stock est faite et le bon s'imprime) ou refuse avec un motif.
+Le demandeur suit sa demande sur son téléphone : en attente, validée ou refusée.
+Pièces hors stock notées sur la demande imprimée : la liste à acheter est prête.
+Bons saisis après coup : stock et prix moyen justes à chaque date, refus si un inventaire a déjà compté l'article.
+Retours de chantier valorisés au coût de la sortie : la consommation des chantiers reste juste.
+Import Excel plus sûr : prix écrits « 5.000 F », fichiers abîmés ou trop lourds, modèle déjà rempli jamais écrasé.
+Corrections : effacement du magasin d'exemple avec des retours, validation d'inventaire, messages en double.
