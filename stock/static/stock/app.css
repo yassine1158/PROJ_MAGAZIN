@@ -1297,3 +1297,6 @@ form.en-ligne { display: inline; }
 .alerte-demande a { color: #fff; font-weight: 700; }
 .alerte-demande button { background: none; border: 0; color: #fff; font-size: 22px; line-height: 1; cursor: pointer; padding: 0 4px; }
 @media print { .alerte-demande { display: none !important; } }
+
+/* Mot de passe oublié (sur l'ordinateur du magasin) */
+.boite-connexion .oubli { text-align: center; margin: 14px 0 0; font-size: 14px; }

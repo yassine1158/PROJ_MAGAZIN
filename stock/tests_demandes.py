@@ -166,3 +166,43 @@ class DemandeTraitementTests(Base):
         self.assertRedirects(self.client.get(reverse('stock:demandes_affiche')), reverse('stock:accueil'),
                              fetch_redirect_response=False)
         self.assertEqual(self.client.get(self.url).status_code, 200)  # un magasinier peut servir une demande
+
+
+class MotDePasseOublieTests(TestCase):
+    def setUp(self):
+        self.chef = get_user_model().objects.create_superuser('chef', 'c@c.fr', 'ancien-mot-de-passe')
+        self.url = reverse('stock:mot_de_passe_oublie')
+
+    def test_sur_le_pc_du_magasin(self):
+        with self.settings(BUREAU=True):
+            self.assertContains(self.client.get(reverse('stock:connexion')), 'Mot de passe oublié ?')
+            rep = self.client.post(self.url, {'compte': self.chef.pk, 'password': 'Nouveau-Secret-2026',
+                                              'password2': 'Nouveau-Secret-2026'})
+            self.assertRedirects(rep, reverse('stock:connexion'), fetch_redirect_response=False)
+        self.assertTrue(self.client.login(username='chef', password='Nouveau-Secret-2026'))
+
+    def test_mots_de_passe_differents(self):
+        with self.settings(BUREAU=True):
+            rep = self.client.post(self.url, {'compte': self.chef.pk, 'password': 'Nouveau-Secret-2026',
+                                              'password2': 'autre'})
+        self.assertContains(rep, 'pas identiques')
+        self.assertTrue(self.client.login(username='chef', password='ancien-mot-de-passe'))
+
+    def test_refuse_depuis_un_telephone(self):
+        with self.settings(BUREAU=True):
+            rep = self.client.post(self.url, {'compte': self.chef.pk, 'password': 'Nouveau-Secret-2026',
+                                              'password2': 'Nouveau-Secret-2026'}, REMOTE_ADDR='192.168.1.30')
+            self.assertIn(rep.status_code, (302, 403))  # accès des téléphones fermé, ou ouvert : refusé
+            with mock.patch('stock.reseau.est_actif', return_value=True):
+                rep = self.client.post(self.url, {'compte': self.chef.pk, 'password': 'Nouveau-Secret-2026',
+                                                  'password2': 'Nouveau-Secret-2026'}, REMOTE_ADDR='192.168.1.30')
+                self.assertRedirects(rep, reverse('stock:connexion'), fetch_redirect_response=False)
+                self.assertNotContains(self.client.get(reverse('stock:connexion'), REMOTE_ADDR='192.168.1.30'),
+                                       'Mot de passe oublié ?')
+        self.assertTrue(self.client.login(username='chef', password='ancien-mot-de-passe'))
+
+    def test_refuse_hors_version_bureau(self):
+        rep = self.client.post(self.url, {'compte': self.chef.pk, 'password': 'Nouveau-Secret-2026',
+                                          'password2': 'Nouveau-Secret-2026'})
+        self.assertRedirects(rep, reverse('stock:connexion'), fetch_redirect_response=False)
+        self.assertTrue(self.client.login(username='chef', password='ancien-mot-de-passe'))

@@ -1,0 +1,39 @@
+{% load static %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mot de passe oublié · {{ NOM_AFFICHE }}</title>
+  <link rel="stylesheet" href="{% static 'stock/app.css' %}">
+  <link rel="icon" href="{% static 'stock/produit-icone.svg' %}">
+  <style>:root { --primaire: {{ COULEURS.primaire }}; --primaire-fonce: {{ COULEURS.fonce }}; --primaire-clair: {{ COULEURS.clair }}; }</style>
+</head>
+<body>
+  <main class="page-connexion">
+    <form method="post" class="carte boite-connexion">
+      {% csrf_token %}
+      <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
+      <h1>Mot de passe oublié</h1>
+      <p class="sous">Choisissez votre compte et tapez un nouveau mot de passe.</p>
+      {% if erreurs %}<div class="message message-error">{% for e in erreurs %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
+      <div class="champ">
+        <label for="compte">Compte</label>
+        <select id="compte" name="compte" required>
+          <option value="">Choisir…</option>
+          {% for c in comptes %}<option value="{{ c.pk }}"{% if choisi == c.pk|stringformat:"s" %} selected{% endif %}>{{ c.get_username }}{% if c.get_full_name %} ({{ c.get_full_name }}){% endif %}{% if c.is_staff %} · responsable{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="champ">
+        <label for="password">Nouveau mot de passe</label>
+        <input type="password" id="password" name="password" autocomplete="new-password" required>
+      </div>
+      <div class="champ">
+        <label for="password2">Retapez-le</label>
+        <input type="password" id="password2" name="password2" autocomplete="new-password" required>
+      </div>
+      <button type="submit" class="btn btn-vert btn-grand">Enregistrer le nouveau mot de passe</button>
+      <p class="oubli"><a href="{% url 'stock:connexion' %}">Retour à la connexion</a></p>
+    </form>
+  </main>
+</body>
+</html>

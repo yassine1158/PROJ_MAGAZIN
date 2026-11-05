@@ -15,6 +15,7 @@
       <img src="{{ LOGO_URL }}" alt="{{ NOM_AFFICHE }}">
       <h1>{% if SOCIETE %}{{ SOCIETE }}{% else %}Gestion du magasin{% endif %}</h1>
       <p class="sous">Connectez-vous pour continuer</p>
+      {% include 'stock/_messages.html' %}
       {% if form.errors %}
         <div class="message message-error">Nom d'utilisateur ou mot de passe incorrect.</div>
       {% endif %}
@@ -28,6 +29,7 @@
       </div>
       <input type="hidden" name="next" value="{{ next }}">
       <button type="submit" class="btn btn-vert btn-grand">Se connecter</button>
+      {% if BUREAU %}<p class="oubli"><a href="{% url 'stock:mot_de_passe_oublie' %}">Mot de passe oublié ?</a></p>{% endif %}
       <p class="produit-bas">{{ PRODUIT }} · gestion de magasin</p>
     </form>
   </main>

@@ -9,6 +9,7 @@ app_name = 'stock'
 urlpatterns = [
     path('', v.accueil, name='accueil'),
     path('connexion/', v.Connexion.as_view(), name='connexion'),
+    path('connexion/mot-de-passe-oublie/', v.mot_de_passe_oublie, name='mot_de_passe_oublie'),
     path('bienvenue/', v.bienvenue, name='bienvenue'),
     path('reglages/ia/', v.reglages_ia, name='reglages_ia'),
     path('reglages/societe/', r.societe, name='reglages_societe'),

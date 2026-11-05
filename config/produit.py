@@ -5,7 +5,7 @@ Le nom, le logo et la couleur de chaque société cliente se règlent dans le lo
 """
 NOM = 'MagaStock'
 SLOGAN = 'Gestion de magasin et de stock'
-VERSION = '1.7.0'
+VERSION = '1.7.1'
 COULEUR = '#2457d6'  # couleur par défaut, modifiable par chaque société
 
 # --- Vente -----------------------------------------------------------------

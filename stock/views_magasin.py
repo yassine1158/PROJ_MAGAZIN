@@ -3,6 +3,7 @@ import difflib
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import uuid
@@ -44,6 +45,8 @@ from .utils import nombre, ordre_emplacement, quantite
 from .views import VALEUR, VALEUR_MVT
 from .views_reglages import responsable
 
+journal = logging.getLogger(__name__)
+
 TYPES_BONS = {'entree': BonEntree, 'sortie': BonSortie, 'retour': BonRetour, 'inventaire': Inventaire}
 STATUTS_BONS = {'brouillon': ('BROUILLON', 'Brouillons'), 'annule': ('ANNULE', 'Annulés'), 'valide': ('VALIDE', 'Validés')}
 NOMS_BONS = {BonEntree: 'entree', BonSortie: 'sortie', BonRetour: 'retour', Inventaire: 'inventaire'}
@@ -62,6 +65,43 @@ class Connexion(LoginView):
             messages.error(request, 'Réservé aux responsables.')
             return redirect('stock:accueil')
         return super().dispatch(request, *args, **kwargs)
+
+
+def _sur_le_pc(request):
+    """Version bureau, devant l'ordinateur où le logiciel est installé (pas un téléphone du magasin)."""
+    from .reseau import est_local
+    return settings.BUREAU and est_local(request)
+
+
+def mot_de_passe_oublie(request):
+    """Mot de passe oublié : sur l'ordinateur du magasin seulement, on choisit le compte et on tape un nouveau mot
+    de passe. Avoir l'ordinateur en main, c'est déjà avoir les données : cela ne donne pas plus d'accès."""
+    if not _sur_le_pc(request):
+        messages.error(request, "Mot de passe oublié : changez-le sur l'ordinateur où le logiciel est installé, "
+                                'ou demandez à un responsable.')
+        return redirect('stock:connexion')
+    comptes = get_user_model().objects.filter(is_active=True).order_by('-is_staff', 'username')
+    erreurs, choisi = [], request.POST.get('compte', '')
+    if request.method == 'POST':
+        utilisateur = comptes.filter(pk=choisi).first() if choisi.isdigit() else None
+        mdp, mdp2 = request.POST.get('password', ''), request.POST.get('password2', '')
+        if not utilisateur:
+            erreurs.append('Choisissez le compte.')
+        if mdp != mdp2:
+            erreurs.append('Les deux mots de passe ne sont pas identiques.')
+        try:
+            validate_password(mdp, utilisateur)
+        except ValidationError as e:
+            erreurs += e.messages
+        if not erreurs:
+            utilisateur.set_password(mdp)
+            utilisateur.save(update_fields=['password'])
+            journal.warning('Mot de passe changé depuis « Mot de passe oublié » : %s', utilisateur.get_username())
+            messages.success(request, f'Nouveau mot de passe enregistré pour « {utilisateur.get_username()} » : '
+                                      'connectez-vous.')
+            return redirect('stock:connexion')
+    return render(request, 'stock/mot_de_passe_oublie.html', {'comptes': comptes, 'erreurs': erreurs,
+                                                               'choisi': choisi})
 
 
 def _article_choix(a):

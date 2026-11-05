@@ -1,10 +1,4 @@
 # Nouveautés de cette version : montrées dans le logiciel (bouton « Nouveautés ») et sur la page de la version.
 # Une ligne par nouveauté, en français simple. Les lignes qui commencent par # sont ignorées.
-Demandes de pièces par QR code : l'atelier scanne l'affiche avec un téléphone et demande ses pièces, sans compte.
-Le magasin reçoit une alerte, valide en un clic (la sortie de stock est faite et le bon s'imprime) ou refuse avec un motif.
-Le demandeur suit sa demande sur son téléphone : en attente, validée ou refusée.
-Pièces hors stock notées sur la demande imprimée : la liste à acheter est prête.
-Bons saisis après coup : stock et prix moyen justes à chaque date, refus si un inventaire a déjà compté l'article.
-Retours de chantier valorisés au coût de la sortie : la consommation des chantiers reste juste.
-Import Excel plus sûr : prix écrits « 5.000 F », fichiers abîmés ou trop lourds, modèle déjà rempli jamais écrasé.
-Corrections : effacement du magasin d'exemple avec des retours, validation d'inventaire, messages en double.
+Mot de passe oublié : sur l'ordinateur du magasin, choisissez le compte et tapez un nouveau mot de passe (bouton sur la page de connexion).
+Demandes de pièces par QR code : l'atelier demande ses pièces depuis le téléphone, le magasin valide et imprime en un clic.
